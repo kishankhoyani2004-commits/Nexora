@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* Brand / Teal Base + Indigo Actions */
+  --color-brand-50: #f0fdfa;
+  --color-brand-100: #ccfbf1;
+  --color-brand-200: #99f6e4;
+  --color-brand-300: #5eead4;
+  --color-brand-400: #2dd4bf;
+  --color-brand-500: #0F766E; /* Teal Primary Brand */
+  --color-brand-600: #6366F1; /* Primary Button (Indigo-500) */
+  --color-brand-700: #4F46E5; /* Button Hover (Indigo-600) */
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+
+  --color-brand-secondary: #4F46E5; /* Indigo Secondary Brand */
+
+  /* Surface */
+  --color-surface-app: #FAFAFC;
+  --color-surface-card: #ffffff;
+  --color-surface-muted: #F3F4F6;
+  --color-surface-border: #E5E7EB;
+  --color-surface-sidebar: #F1F5F9;
+  --color-surface-header: #F8FAFC;
+
+  /* Ink */
+  --color-ink-900: #111827;
+  --color-ink-700: #374151;
+  --color-ink-500: #6B7280;
+  --color-ink-400: #9CA3AF;
+  --color-ink-300: #D1D5DB;
+
+  /* Status */
+  --color-success: #0f9d6b;
+  --color-warning: #d97b0d;
+  --color-danger: #e0403f;
+
+  --shadow-card: 0 1px 2px rgba(15, 14, 23, 0.04), 0 8px 24px -12px rgba(99, 102, 241, 0.12);
+  --shadow-pop: 0 12px 32px -8px rgba(99, 102, 241, 0.28);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-surface-border);
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-surface-app text-ink-900 font-sans antialiased;
+    font-feature-settings: "cv11", "ss01";
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+  ::selection {
+    background: var(--color-brand-200);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
+
+  .dark {
+    --color-surface-app: #0B1120;
+    --color-surface-card: #111827;
+    --color-surface-muted: #1E293B;
+    --color-surface-border: #1F2937;
+    --color-surface-sidebar: #0F172A;
+    --color-surface-header: #1E293B;
+
+    --color-ink-900: #F9FAFB;
+    --color-ink-700: #E5E7EB;
+    --color-ink-500: #9CA3AF;
+    --color-ink-400: #6B7280;
+    --color-ink-300: #4B5563;
+
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+    --shadow-pop: 0 20px 48px -12px rgba(0, 0, 0, 0.6);
+  }
+
+  .dark * {
+    border-color: var(--color-surface-border);
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: var(--color-surface-border);
+    border-radius: 999px;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
