@@ -38,6 +38,7 @@ import { aiService } from "@/services/ai.service";
 import { useDebounce } from "@/hooks/useDebounce";
 import type { AiChatMessage, AiChatSummary, AiChatSearchResult } from "@/types";
 import { useNotification } from "@/context/NotificationContext";
+import { useConfirm } from "@/context/ConfirmContext";
 import { cn } from "@/utils/cn";
 
 // ── Role-scoped AI tools — never mixed between Client and Freelancer. ───────
@@ -146,6 +147,7 @@ function MessageContent({ content }: { content: string }) {
 export default function AiAssistant() {
   const { user } = useAuth();
   const { notify } = useNotification();
+  const confirm = useConfirm();
   const navItems = user?.role === "client" ? CLIENT_NAV : FREELANCER_NAV;
   // Detected live from the auth context — swaps instantly on role change, no reload.
   const tools = user?.role === "client" ? CLIENT_TOOLS : FREELANCER_TOOLS;
@@ -284,7 +286,7 @@ export default function AiAssistant() {
 
   const removeChat = async (chatId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm("Delete this conversation? This cannot be undone.")) return;
+    if (!(await confirm({ title: "Delete Conversation", message: "Delete this conversation? This cannot be undone.", confirmLabel: "Delete" }))) return;
     try {
       await aiService.deleteChat(chatId);
       setChats((prev) => prev.filter((c) => c.id !== chatId));
@@ -422,7 +424,7 @@ export default function AiAssistant() {
             )}
           </div>
 
-          <div className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
+          <div className="flex-1 space-y-1 overflow-y-auto scrollbar-thin px-3 pb-4">
             {searchQuery ? (
               searchResults === null ? (
                 <div className="px-2 py-6 text-center text-xs text-ink-400">Searching…</div>
@@ -504,7 +506,7 @@ export default function AiAssistant() {
 
         {/* MAIN PANEL */}
         <div className="flex flex-1 flex-col bg-surface-app">
-          <div ref={scrollRef} className="flex-1 overflow-y-auto px-8 py-10">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin px-8 py-10">
             {loadingChat ? (
               <div className="flex h-full items-center justify-center gap-2.5 text-xs font-bold text-ink-500">
                 <Loader2 className="h-5 w-5 animate-spin text-brand-600" />

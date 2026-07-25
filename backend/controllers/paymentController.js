@@ -136,6 +136,75 @@ export const listTransactions = async (req, res, next) => {
   }
 };
 
+// GET /api/payments/dashboard — Client Finance Dashboard summary.
+export const getClientFinanceDashboard = async (req, res, next) => {
+  try {
+    if (req.user.role !== "client") {
+      return res.status(403).json({ success: false, message: "Only clients can view the finance dashboard." });
+    }
+
+    const earnings = await Earning.find({ client: req.user._id })
+      .populate("freelancer", "fullName avatar")
+      .populate("job", "title")
+      .populate("contract", "title")
+      .sort({ createdAt: -1 });
+
+    const pendingEarnings = earnings.filter((e) => ["pending", "in_escrow"].includes(e.status));
+    const completedEarnings = earnings.filter((e) => ["released", "withdrawn"].includes(e.status));
+
+    const pendingPayments = { count: pendingEarnings.length, amount: pendingEarnings.reduce((s, e) => s + e.amount, 0) };
+    const completedPayments = { count: completedEarnings.length, amount: completedEarnings.reduce((s, e) => s + e.amount, 0) };
+
+    const contracts = await Contract.find({ client: req.user._id }).select("_id");
+    const contractIds = contracts.map((c) => c._id);
+    const upcomingMilestones = contractIds.length
+      ? await Milestone.find({ contract: { $in: contractIds }, status: "submitted" })
+      : [];
+    const upcomingPayments = { count: upcomingMilestones.length, amount: upcomingMilestones.reduce((s, m) => s + m.budget, 0) };
+
+    const totalSpent = completedPayments.amount;
+
+    const now = new Date();
+    const dateOf = (e) => new Date(e.paidAt || e.updatedAt);
+    const inRange = (date, start, end) => date >= start && date < end;
+
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthlySpending = completedEarnings.filter((e) => inRange(dateOf(e), thisMonthStart, now)).reduce((s, e) => s + e.amount, 0);
+
+    const monthlySpendingChart = [];
+    for (let i = 5; i >= 0; i--) {
+      const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+      const amount = completedEarnings.filter((e) => inRange(dateOf(e), start, end)).reduce((s, e) => s + e.amount, 0);
+      monthlySpendingChart.push({ month: start.toLocaleDateString("en-US", { month: "short" }), year: start.getFullYear(), amount });
+    }
+
+    const recentPayments = completedEarnings.slice(0, 6).map((e) => ({
+      id: e._id.toString(),
+      projectTitle: e.contract?.title || e.job?.title || "Untitled Project",
+      freelancerName: e.freelancer?.fullName || "Unknown",
+      amount: e.amount,
+      status: e.status,
+      date: (e.paidAt || e.updatedAt).toISOString(),
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        pendingPayments,
+        completedPayments,
+        upcomingPayments,
+        totalSpent,
+        monthlySpending,
+        monthlySpendingChart,
+        recentPayments,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // GET /api/payments/releasable-milestones
 // Milestones the client has received work for (status "submitted") and can
 // release payment on directly from the Payments dashboard, without having to

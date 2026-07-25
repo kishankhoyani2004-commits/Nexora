@@ -70,6 +70,17 @@ export default function ClientSettings() {
     enabled: tab === "Security",
   });
 
+  // Sync the active tab with the `?tab=` query param — this component
+  // doesn't remount when navigating between sidebar links that share this
+  // same route path (only the query differs), so `tab` (seeded once at
+  // first mount) needs to be re-synced on every URL change.
+  useEffect(() => {
+    const paramTab = searchParams.get("tab");
+    if (paramTab && (TABS as readonly string[]).includes(paramTab)) {
+      setTab(paramTab as (typeof TABS)[number]);
+    }
+  }, [searchParams]);
+
   // Load settings into form when data arrives
   useEffect(() => {
     if (settingsData?.data) {

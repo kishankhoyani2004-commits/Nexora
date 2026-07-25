@@ -298,25 +298,25 @@ export default function PostJob() {
                     label="Minimum Budget *"
                     type="number"
                     min={0}
-                    value={budgetMin}
-                    onChange={(e) => setBudgetMin(Number(e.target.value))}
+                    value={budgetMin || ""}
+                    onChange={(e) => setBudgetMin(e.target.value === "" ? 0 : Number(e.target.value))}
                     error={errors.budget}
                   />
                   <Input
                     label="Maximum Budget *"
                     type="number"
                     min={0}
-                    value={budgetMax}
-                    onChange={(e) => setBudgetMax(Number(e.target.value))}
+                    value={budgetMax || ""}
+                    onChange={(e) => setBudgetMax(e.target.value === "" ? 0 : Number(e.target.value))}
                     error={errors.budgetMax}
                   />
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-4">
                   <Input label="Min Hourly Rate *" type="number" min={0}
-                    value={budgetMin} onChange={(e) => setBudgetMin(Number(e.target.value))} error={errors.budget} />
+                    value={budgetMin || ""} onChange={(e) => setBudgetMin(e.target.value === "" ? 0 : Number(e.target.value))} error={errors.budget} />
                   <Input label="Max Hourly Rate *" type="number" min={0}
-                    value={budgetMax} onChange={(e) => setBudgetMax(Number(e.target.value))} error={errors.budgetMax} />
+                    value={budgetMax || ""} onChange={(e) => setBudgetMax(e.target.value === "" ? 0 : Number(e.target.value))} error={errors.budgetMax} />
                 </div>
               )}
 
@@ -366,7 +366,8 @@ export default function PostJob() {
                   <option value="fluent">Fluent</option>
                 </Select>
                 <Input label="Freelancers Needed" type="number" min={1} max={50}
-                  value={freelancersNeeded} onChange={(e) => setFreelancersNeeded(Math.max(1, Number(e.target.value)))} />
+                  value={freelancersNeeded || ""}
+                  onChange={(e) => setFreelancersNeeded(e.target.value === "" ? 0 : Number(e.target.value))} />
               </div>
 
               {/* Currency + Estimated Hours (for hourly) */}
@@ -380,7 +381,8 @@ export default function PostJob() {
                     <option value="AUD">A$ Australian Dollar (AUD)</option>
                   </Select>
                   <Input label="Estimated Total Hours" type="number" min={1} max={10000}
-                    value={estimatedHours} onChange={(e) => setEstimatedHours(Number(e.target.value))}
+                    value={estimatedHours || ""}
+                    onChange={(e) => setEstimatedHours(e.target.value === "" ? 0 : Number(e.target.value))}
                     placeholder="e.g. 160 (for a month-long project)" />
                 </div>
               )}

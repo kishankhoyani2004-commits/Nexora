@@ -49,6 +49,7 @@ import { workspaceService } from "@/services/workspace.service";
 import { apiClient } from "@/lib/axios";
 import { formatCurrency } from "@/utils/formatters";
 import { useNotification } from "@/context/NotificationContext";
+import { useConfirm } from "@/context/ConfirmContext";
 import { ROUTES } from "@/constants/routes";
 import { connectSocket } from "@/lib/socket";
 import type {
@@ -96,6 +97,7 @@ export default function Workspace() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { notify } = useNotification();
+  const confirm = useConfirm();
   const [searchParams, setSearchParams] = useSearchParams();
   const { projectId: routeProjectId } = useParams<{ projectId?: string }>();
 
@@ -169,6 +171,12 @@ export default function Workspace() {
 
   // Deliverables states
   const [showDeliverableModal, setShowDeliverableModal] = useState(false);
+
+  // Submit Project (whole-project, for client review) states
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [submitNotes, setSubmitNotes] = useState("");
+  const [submitLinks, setSubmitLinks] = useState("");
+  const [submitFiles, setSubmitFiles] = useState<File[]>([]);
   const [delName, setDelName] = useState("");
   const [delMilestoneId, setDelMilestoneId] = useState("");
   const [delType, setDelType] = useState("zip");
@@ -562,6 +570,31 @@ export default function Workspace() {
     },
   });
 
+  // Submit the whole project to the client for review (freelancer action).
+  // Moves the contract to "submitted" so it appears on the client's
+  // "Submitted Projects" page; the client then approves (⇒ completed +
+  // payment released) or requests a revision (⇒ back to "active").
+  const submitProjectMutation = useMutation({
+    mutationFn: async () => {
+      const fd = new FormData();
+      fd.append("notes", submitNotes);
+      fd.append("links", submitLinks);
+      submitFiles.forEach((f) => fd.append("files", f));
+      return workspaceService.submitProject(projectId, fd);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      setShowSubmitModal(false);
+      setSubmitNotes("");
+      setSubmitLinks("");
+      setSubmitFiles([]);
+      notify("Project submitted for review! The client has been notified.", "success");
+    },
+    onError: (err: any) => {
+      notify(err?.response?.data?.message || "Failed to submit project.", "error");
+    },
+  });
+
   const deleteMilestoneMutation = useMutation({
     mutationFn: async (milestoneId: string) => {
       await workspaceService.deleteMilestone(milestoneId);
@@ -819,12 +852,81 @@ export default function Workspace() {
               </div>
             </div>
 
-            {/* Simulated Review/Client Actions Panel */}
-            <div className="flex items-center gap-2 rounded-2xl border border-warning/30 bg-warning/5 px-4 py-2 text-xs text-warning-strong">
-              <Zap className="h-4 w-4 text-warning" />
-              <span>Simulation Console: Logged in as Freelancer (Owner)</span>
+            <div className="flex items-center gap-2">
+              {user?.role === "freelancer" && currentProject.status === "active" && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={<CheckCircle2 className="h-4 w-4" />}
+                  iconPosition="left"
+                  onClick={() => setShowSubmitModal(true)}
+                >
+                  Complete Project
+                </Button>
+              )}
+              {currentProject.status === "submitted" && (
+                <Badge tone="brand">Awaiting Client Review</Badge>
+              )}
+
+              {/* Simulated Review/Client Actions Panel */}
+              <div className="flex items-center gap-2 rounded-2xl border border-warning/30 bg-warning/5 px-4 py-2 text-xs text-warning-strong">
+                <Zap className="h-4 w-4 text-warning" />
+                <span>Simulation Console: Logged in as Freelancer (Owner)</span>
+              </div>
             </div>
           </div>
+
+          {/* Submit Project for Review Modal */}
+          {showSubmitModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+              <div className="w-full max-w-md rounded-3xl border border-surface-border bg-surface-card p-6 shadow-card space-y-4">
+                <h3 className="text-lg font-bold text-ink-900">Submit Project for Review</h3>
+                <p className="text-xs text-ink-500">
+                  This sends the project to the client for approval. Once approved, it will be marked completed and escrow payment will be released to you.
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-ink-700 mb-1.5">Notes for Client</label>
+                    <textarea
+                      value={submitNotes}
+                      onChange={(e) => setSubmitNotes(e.target.value)}
+                      rows={3}
+                      placeholder="Summarize the completed work..."
+                      className="w-full resize-none rounded-xl border border-surface-border px-3 py-2 text-sm text-ink-900 placeholder:text-ink-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                    />
+                  </div>
+                  <Input
+                    label="Links (comma-separated)"
+                    placeholder="https://github.com/..., https://live-demo.com"
+                    value={submitLinks}
+                    onChange={(e) => setSubmitLinks(e.target.value)}
+                  />
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-ink-700 mb-1.5">Deliverable Files</label>
+                    <input
+                      type="file"
+                      multiple
+                      onChange={(e) => setSubmitFiles(Array.from(e.target.files || []))}
+                      className="w-full text-xs text-ink-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-brand-600"
+                    />
+                    {submitFiles.length > 0 && (
+                      <p className="mt-1 text-xs text-ink-500">{submitFiles.length} file(s) selected</p>
+                    )}
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2">
+                    <Button variant="ghost" onClick={() => setShowSubmitModal(false)}>Cancel</Button>
+                    <Button
+                      isLoading={submitProjectMutation.isPending}
+                      disabled={!submitNotes.trim() && !submitLinks.trim() && submitFiles.length === 0}
+                      onClick={() => submitProjectMutation.mutate()}
+                    >
+                      Submit for Review
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Navigation Tabs bar */}
           <div className="flex gap-2 border-b border-surface-border overflow-x-auto pb-px">
@@ -1052,6 +1154,11 @@ export default function Workspace() {
                   <Button variant="outline" size="sm" fullWidth onClick={() => updateTab("Time Tracking")}>
                     <Clock className="h-4 w-4 mr-2" /> Log Time
                   </Button>
+                  {user?.role === "freelancer" && currentProject.status === "active" && (
+                    <Button variant="primary" size="sm" fullWidth onClick={() => setShowSubmitModal(true)}>
+                      <CheckCircle2 className="h-4 w-4 mr-2" /> Complete Project
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -1289,8 +1396,8 @@ export default function Workspace() {
                             size="sm"
                             variant="outline"
                             className="text-danger hover:bg-danger/5"
-                            onClick={() => {
-                              if (confirm(`Delete milestone "${m.title}"? This cannot be undone.`)) {
+                            onClick={async () => {
+                              if (await confirm({ title: "Delete Milestone", message: `Delete milestone "${m.title}"? This cannot be undone.`, confirmLabel: "Delete" })) {
                                 deleteMilestoneMutation.mutate(m.id);
                               }
                             }}
@@ -1360,8 +1467,8 @@ export default function Workspace() {
                           label="Budget"
                           type="number"
                           min={0}
-                          value={milestoneBudget}
-                          onChange={(e) => setMilestoneBudget(Number(e.target.value))}
+                          value={milestoneBudget || ""}
+                          onChange={(e) => setMilestoneBudget(e.target.value === "" ? 0 : Number(e.target.value))}
                           required
                         />
                         <Input
@@ -1654,8 +1761,8 @@ export default function Workspace() {
                         type="number"
                         min={1}
                         max={12}
-                        value={manualHours}
-                        onChange={(e) => setManualHours(Number(e.target.value))}
+                        value={manualHours || ""}
+                        onChange={(e) => setManualHours(e.target.value === "" ? 0 : Number(e.target.value))}
                       />
                       <div>
                         <label className="block text-xs font-bold uppercase text-ink-700 mb-1.5">Notes / Work Done</label>

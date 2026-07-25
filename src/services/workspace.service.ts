@@ -15,6 +15,8 @@ import type {
   SubmittedProjectItem,
   MyMilestoneItem,
   MyFileItem,
+  MyDeliverableItem,
+  MyTimeLogItem,
 } from "@/types";
 
 export const workspaceService = {
@@ -118,6 +120,10 @@ export const workspaceService = {
     apiClient.get<ApiResponse<MyMilestoneItem[]>>(`/workspaces/my-milestones`),
   listMyFiles: () =>
     apiClient.get<ApiResponse<MyFileItem[]>>(`/workspaces/my-files`),
+  listMyDeliverables: () =>
+    apiClient.get<ApiResponse<MyDeliverableItem[]>>(`/workspaces/my-deliverables`),
+  listMyTimeLogs: () =>
+    apiClient.get<ApiResponse<MyTimeLogItem[]>>(`/workspaces/my-time-logs`),
   reviewSubmission: (projectId: string, action: "approve" | "request_revision", feedback?: string) =>
     apiClient.post<ApiResponse<{ contract: Contract; submission: ProjectSubmission }>>(
       `/workspaces/${projectId}/submission/review`,

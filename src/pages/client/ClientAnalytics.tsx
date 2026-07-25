@@ -83,7 +83,18 @@ const cardCls = "rounded-3xl border border-surface-border bg-surface-card p-6 sh
 const titleCls = "text-base font-bold text-ink-900";
 const subCls = "text-xs text-ink-500 mt-0.5";
 
-export default function ClientAnalytics() {
+type AnalyticsSection = "spending" | "reports" | "team";
+
+const SECTION_COPY: Record<AnalyticsSection, { title: string; subtitle: string }> = {
+  spending: { title: "Spending Analytics", subtitle: "Spending insights and project completion trends." },
+  reports: { title: "Reports", subtitle: "Job posting, proposal, and hiring reports over time." },
+  team: { title: "Team Performance", subtitle: "How the freelancers you've hired are performing." },
+};
+
+// Shared analytics view for the client's Reports / Spending Analytics / Team
+// Performance pages — each section renders a different slice of the same
+// analytics payload, on its own route, instead of three identical pages.
+export function AnalyticsPage({ section }: { section: AnalyticsSection }) {
   const [range, setRange] = useState<RangePreset>("12m");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -116,8 +127,8 @@ export default function ClientAnalytics() {
     <DashboardLayout tagline="Client Hub" searchPlaceholder="Search analytics...">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold text-ink-900">Client Analytics</h1>
-          <p className="text-sm text-ink-500">Spending insights, hiring performance, and project trends.</p>
+          <h1 className="text-2xl font-extrabold text-ink-900">{SECTION_COPY[section].title}</h1>
+          <p className="text-sm text-ink-500">{SECTION_COPY[section].subtitle}</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -161,17 +172,33 @@ export default function ClientAnalytics() {
         </div>
       ) : (
         <>
-          {/* ── Stat Cards ── */}
-          <div className="mb-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            <StatCard label="Jobs Posted" value={String(data.stats.totalJobsPosted)} icon={Briefcase} tone="brand" />
-            <StatCard label="Active Projects" value={String(data.stats.activeProjects)} icon={FolderKanban} tone="info" />
-            <StatCard label="Completed Projects" value={String(data.stats.completedProjects)} icon={CheckCircle2} tone="success" />
-            <StatCard label="Proposals Received" value={String(data.stats.totalProposalsReceived)} icon={FileText} tone="warning" />
-            <StatCard label="Acceptance Rate" value={`${data.stats.acceptanceRate}%`} icon={Percent} tone="info" />
-            <StatCard label="Total Spending" value={formatCurrency(data.stats.totalSpending)} icon={DollarSign} tone="brand" />
+          {/* ── Stat Cards (section-specific) ── */}
+          <div className="mb-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {section === "spending" && (
+              <>
+                <StatCard label="Total Spending" value={formatCurrency(data.stats.totalSpending)} icon={DollarSign} tone="brand" />
+                <StatCard label="Active Projects" value={String(data.stats.activeProjects)} icon={FolderKanban} tone="info" />
+                <StatCard label="Completed Projects" value={String(data.stats.completedProjects)} icon={CheckCircle2} tone="success" />
+              </>
+            )}
+            {section === "reports" && (
+              <>
+                <StatCard label="Jobs Posted" value={String(data.stats.totalJobsPosted)} icon={Briefcase} tone="brand" />
+                <StatCard label="Proposals Received" value={String(data.stats.totalProposalsReceived)} icon={FileText} tone="warning" />
+                <StatCard label="Acceptance Rate" value={`${data.stats.acceptanceRate}%`} icon={Percent} tone="info" />
+              </>
+            )}
+            {section === "team" && (
+              <>
+                <StatCard label="Freelancers Hired" value={String(data.freelancerPerformance.length)} icon={Briefcase} tone="brand" />
+                <StatCard label="Completed Projects" value={String(data.stats.completedProjects)} icon={CheckCircle2} tone="success" />
+                <StatCard label="Acceptance Rate" value={`${data.stats.acceptanceRate}%`} icon={Percent} tone="info" />
+              </>
+            )}
           </div>
 
-          {/* ── Row: Monthly Spending + Completion Rate ── */}
+          {section === "spending" && (
+          /* ── Row: Monthly Spending + Completion Rate ── */
           <div className="mb-6 grid gap-5 lg:grid-cols-[1fr_320px]">
             <div className={cardCls}>
               <h2 className={titleCls}>Monthly Spending Chart</h2>
@@ -217,7 +244,10 @@ export default function ClientAnalytics() {
               <p className="text-xs text-ink-400">{data.stats.completedProjects} of {data.stats.completedProjects + data.stats.activeProjects} tracked projects completed</p>
             </div>
           </div>
+          )}
 
+          {section === "reports" && (
+          <>
           {/* ── Row: Job Posting Trends + Proposal Analytics ── */}
           <div className="mb-6 grid gap-5 lg:grid-cols-2">
             <div className={cardCls}>
@@ -251,7 +281,7 @@ export default function ClientAnalytics() {
             </div>
           </div>
 
-          {/* ── Row: Project Status Distribution + Top Categories ── */}
+          {/* ── Row: Project Status Distribution + Hiring Trends ── */}
           <div className="mb-6 grid gap-5 lg:grid-cols-2">
             <div className={cardCls}>
               <h2 className={titleCls}>Project Status Distribution</h2>
@@ -281,7 +311,13 @@ export default function ClientAnalytics() {
                 </ResponsiveContainer>
               )}
             </div>
+          </div>
+          </>
+          )}
 
+          {section === "spending" && (
+          /* ── Row: Top Categories ── */
+          <div className="mb-6 grid gap-5">
             <div className={cardCls}>
               <h2 className={titleCls}>Top Categories</h2>
               <p className={subCls}>Spending by job category.</p>
@@ -309,8 +345,10 @@ export default function ClientAnalytics() {
               )}
             </div>
           </div>
+          )}
 
-          {/* ── Row: Hiring Trends + Monthly Hiring Report ── */}
+          {section === "reports" && (
+          /* ── Row: Hiring Trends + Monthly Hiring Report ── */
           <div className="mb-6 grid gap-5 lg:grid-cols-2">
             <div className={cardCls}>
               <h2 className={titleCls}>Hiring Trends</h2>
@@ -361,8 +399,10 @@ export default function ClientAnalytics() {
               </div>
             </div>
           </div>
+          )}
 
-          {/* ── Row: Freelancer Performance + Recent Activity ── */}
+          {section === "team" && (
+          /* ── Row: Freelancer Performance + Recent Activity ── */
           <div className="grid gap-5 lg:grid-cols-[1fr_380px]">
             <div className={cn(cardCls, "overflow-hidden")}>
               <h2 className={titleCls}>Freelancer Performance</h2>
@@ -431,8 +471,13 @@ export default function ClientAnalytics() {
               )}
             </div>
           </div>
+          )}
         </>
       )}
     </DashboardLayout>
   );
+}
+
+export default function ClientAnalytics() {
+  return <AnalyticsPage section="spending" />;
 }

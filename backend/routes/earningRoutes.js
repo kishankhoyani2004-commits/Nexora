@@ -12,4 +12,7 @@ router.get("/", protect, applicationController.getFreelancerEarnings);
 // ── Freelancer: Get earnings summary ──
 router.get("/summary", protect, applicationController.getEarningsSummary);
 
+// ── Freelancer: Get full Earnings Dashboard (stats + chart + recent + top clients) ──
+router.get("/dashboard", protect, applicationController.getEarningsDashboard);
+
 export default router;

@@ -8,6 +8,7 @@ import {
   releaseMilestonePaymentHandler,
   refundPaymentHandler,
   getReceipt,
+  getClientFinanceDashboard,
 } from "../controllers/paymentController.js";
 
 const router = express.Router();
@@ -15,6 +16,7 @@ const router = express.Router();
 router.post("/intent", protect, createIntent);
 router.post("/webhook", handleWebhook); // Stripe webhooks can be public (Stripe signs payload)
 router.get("/history", protect, listTransactions);
+router.get("/dashboard", protect, getClientFinanceDashboard);
 router.get("/releasable-milestones", protect, getReleasableMilestones);
 router.post("/milestones/:milestoneId/release", protect, releaseMilestonePaymentHandler);
 router.post("/:earningId/refund", protect, refundPaymentHandler);

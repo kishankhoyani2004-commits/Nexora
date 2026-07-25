@@ -13,6 +13,7 @@ import { Toggle } from "@/components/ui/Toggle";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
 import { useNotification } from "@/context/NotificationContext";
+import { useConfirm } from "@/context/ConfirmContext";
 import { jobAlertService } from "@/services/jobAlert.service";
 import type { CreateAlertPayload } from "@/services/jobAlert.service";
 import { cn } from "@/utils/cn";
@@ -318,6 +319,7 @@ function AlertCard({
 export default function JobAlerts() {
   const queryClient = useQueryClient();
   const { notify }  = useNotification();
+  const confirm     = useConfirm();
 
   const [modalOpen, setModalOpen]       = useState(false);
   const [editingAlert, setEditingAlert] = useState<JobAlert | null>(null);
@@ -462,8 +464,10 @@ export default function JobAlerts() {
                 alert={alert}
                 onEdit={() => setEditingAlert(alert)}
                 onToggle={() => toggleMutation.mutate(alert.id)}
-                onDelete={() => {
-                  if (confirm(`Delete alert "${alert.name}"?`)) deleteMutation.mutate(alert.id);
+                onDelete={async () => {
+                  if (await confirm({ title: "Delete Alert", message: `Delete alert "${alert.name}"?`, confirmLabel: "Delete" })) {
+                    deleteMutation.mutate(alert.id);
+                  }
                 }}
                 isToggling={toggleMutation.isPending && toggleMutation.variables === alert.id}
                 isDeleting={deleteMutation.isPending && deleteMutation.variables === alert.id}

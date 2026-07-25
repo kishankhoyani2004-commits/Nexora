@@ -15,6 +15,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { proposalService } from "@/services/proposal.service";
 import { useNotification } from "@/context/NotificationContext";
+import { useConfirm } from "@/context/ConfirmContext";
 import { cn } from "@/utils/cn";
 import type { Proposal } from "@/types";
 
@@ -51,6 +52,7 @@ export default function ProposalsList() {
   const { user }        = useAuth();
   const navigate        = useNavigate();
   const { notify }      = useNotification();
+  const confirm         = useConfirm();
   const queryClient     = useQueryClient();
 
   const [activeTab,       setActiveTab]       = useState<TabKey>("all");
@@ -258,8 +260,8 @@ export default function ProposalsList() {
                             <Pencil className="h-4 w-4" />
                           </button>
                           <button
-                            onClick={() => {
-                              if (confirm("Withdraw this proposal?"))
+                            onClick={async () => {
+                              if (await confirm({ title: "Withdraw Proposal", message: "Withdraw this proposal?", confirmLabel: "Withdraw" }))
                                 withdrawMutation.mutate(pId);
                             }}
                             disabled={withdrawMutation.isPending}
@@ -330,8 +332,8 @@ export default function ProposalsList() {
                 label="Bid Amount (₹)"
                 type="number"
                 min={0}
-                value={editBid}
-                onChange={(e) => setEditBid(Number(e.target.value))}
+                value={editBid || ""}
+                onChange={(e) => setEditBid(e.target.value === "" ? 0 : Number(e.target.value))}
                 required
               />
               <div>

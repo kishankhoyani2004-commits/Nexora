@@ -351,8 +351,8 @@ export default function SubmitProposal() {
                     <span className="text-sm font-bold text-ink-900">$</span>
                     <input
                       type="number"
-                      value={bidAmount}
-                      onChange={(e) => setBidAmount(parseInt(e.target.value) || 0)}
+                      value={bidAmount || ""}
+                      onChange={(e) => setBidAmount(e.target.value === "" ? 0 : parseInt(e.target.value) || 0)}
                       className="h-11 w-full pl-1.5 text-sm font-bold text-ink-900 bg-surface-card outline-none"
                     />
                   </div>
@@ -373,24 +373,6 @@ export default function SubmitProposal() {
                 </div>
               </div>
 
-              {/* INTERACTIVE BUDGET SLIDER */}
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs font-bold text-ink-500">
-                  <span>Min: $60</span>
-                  <span>Max: $6,250</span>
-                </div>
-                <input
-                  type="range"
-                  min="60"
-                  max="6250"
-                  step="50"
-                  value={bidAmount}
-                  onChange={(e) => setBidAmount(parseInt(e.target.value) || 60)}
-                  className="w-full h-2 rounded-lg bg-surface-muted appearance-none cursor-pointer accent-brand-600 focus:outline-none"
-                />
-                <p className="text-center text-[10px] text-brand-600 font-bold">Drag to quickly adjust budget</p>
-              </div>
-
               {/* DELIVERY TIME */}
               <div>
                 <div className="mb-1.5 flex items-center justify-between">
@@ -408,8 +390,8 @@ export default function SubmitProposal() {
                   <input
                     type="number"
                     min={1}
-                    value={deliveryDays}
-                    onChange={(e) => setDeliveryDays(parseInt(e.target.value) || 0)}
+                    value={deliveryDays || ""}
+                    onChange={(e) => setDeliveryDays(e.target.value === "" ? 0 : parseInt(e.target.value) || 0)}
                     className="h-11 w-full text-sm font-bold text-ink-900 bg-surface-card outline-none"
                   />
                   <span className="text-xs font-semibold text-ink-400 shrink-0">days</span>

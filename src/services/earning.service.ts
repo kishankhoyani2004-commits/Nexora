@@ -22,6 +22,42 @@ export interface EarningsSummary {
   count: number;
 }
 
+export interface EarningsMonthPoint {
+  month: string;
+  year: number;
+  amount: number;
+}
+
+export interface RecentPayment {
+  id: string;
+  projectTitle: string;
+  clientName: string;
+  amount: number;
+  status: string;
+  date: string;
+}
+
+export interface TopPayingClient {
+  clientId: string;
+  name: string;
+  avatar: string;
+  total: number;
+  projectCount: number;
+}
+
+export interface EarningsDashboard {
+  totalEarnings: number;
+  availableBalance: number;
+  pendingClearance: number;
+  withdrawnAmount: number;
+  thisMonthEarnings: number;
+  lastMonthEarnings: number;
+  lifetimeEarnings: number;
+  earningsByMonth: EarningsMonthPoint[];
+  recentPayments: RecentPayment[];
+  topPayingClients: TopPayingClient[];
+}
+
 export const earningService = {
   /** All earning records for the logged-in freelancer */
   getEarnings: () =>
@@ -30,4 +66,8 @@ export const earningService = {
   /** Summary totals only (total, pending, inEscrow, released) */
   getSummary: () =>
     apiClient.get<ApiResponse<EarningsSummary>>("/earnings/summary"),
+
+  /** Full Earnings Dashboard payload — stats, monthly chart, recent payments, top clients */
+  getDashboard: () =>
+    apiClient.get<ApiResponse<EarningsDashboard>>("/earnings/dashboard"),
 };

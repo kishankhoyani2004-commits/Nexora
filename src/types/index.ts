@@ -728,6 +728,16 @@ export interface MyFileItem {
   contract: Pick<WorkspaceContractRef, "id" | "title"> | null;
 }
 
+export interface MyDeliverableItem {
+  deliverable: WorkspaceDeliverable;
+  contract: WorkspaceContractRef | null;
+}
+
+export interface MyTimeLogItem {
+  timeLog: WorkspaceTimeLog;
+  contract: WorkspaceContractRef | null;
+}
+
 export interface WorkspaceDeliverable {
   id: string;
   contract: string;

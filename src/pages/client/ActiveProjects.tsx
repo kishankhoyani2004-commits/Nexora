@@ -1,24 +1,17 @@
 import { useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
-  Briefcase, Clock, DollarSign, CheckCircle2, AlertCircle, Users,
-  MessageCircle, ChevronRight, Filter, Loader2, TrendingUp
+  Briefcase, DollarSign, CheckCircle2, MessageCircle, ChevronRight, Loader2,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { useAuth } from "@/context/AuthContext";
-import { useNotification } from "@/context/NotificationContext";
 import { CLIENT_NAV } from "@/constants/nav";
-import { ROUTES } from "@/constants/routes";
 import { contractService } from "@/services/contract.service";
 import { formatCurrency, formatRelativeTime } from "@/utils/formatters";
 import type { Contract } from "@/types";
-import { cn } from "@/utils/cn";
-
-type FilterStatus = "all" | "active" | "submitted" | "completed" | "cancelled" | "disputed";
 
 const STATUS_BADGE = {
   active: { tone: "success" as const, label: "Active" },
@@ -36,22 +29,19 @@ const ESCROW_BADGE = {
   none: { tone: "info" as const, label: "Not Set" },
 };
 
-export default function ActiveProjects() {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const { notify } = useNotification();
+interface ProjectsPageProps {
+  mode: "active" | "completed";
+}
 
-  const [searchParams] = useSearchParams();
-  const initialStatus = (searchParams.get("status") as FilterStatus) || "all";
-  const [filterStatus, setFilterStatus] = useState<FilterStatus>(
-    ["all", "active", "submitted", "completed", "cancelled", "disputed"].includes(initialStatus) ? initialStatus : "all"
-  );
+// Shared list view for the client's Active Projects and Completed Project
+// pages — each status now lives on its own route instead of being a tab
+// toggle on a single page.
+export function ProjectsPage({ mode }: ProjectsPageProps) {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Fetch contracts
-  const { data: contractsRes, isLoading, isError } = useQuery({
-    queryKey: ["contracts", filterStatus],
+  const { data: contractsRes, isLoading } = useQuery({
+    queryKey: ["contracts", mode],
     queryFn: async () => {
       const res = await contractService.list();
       return res.data;
@@ -60,27 +50,23 @@ export default function ActiveProjects() {
 
   const contracts: Contract[] = (contractsRes as any)?.data || [];
 
-  // Filter contracts
-  const filteredContracts = contracts.filter((contract: any) => {
-    const matchesStatus = filterStatus === "all" || contract.status === filterStatus;
-    const matchesSearch =
-      contract.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (contract.freelancer as any)?.fullName?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesStatus && matchesSearch;
-  });
+  const activeContracts = contracts.filter((c: any) => c.status === "active");
+  const completedContracts = contracts.filter((c: any) => c.status === "completed");
 
-  // Categorize contracts
-  const activeContracts = filteredContracts.filter((c: any) => c.status === "active");
-  const completedContracts = filteredContracts.filter((c: any) => c.status === "completed");
+  const pageContracts = mode === "active" ? activeContracts : completedContracts;
+  const filteredContracts = pageContracts.filter((contract: any) => {
+    return (
+      contract.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (contract.freelancer as any)?.fullName?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  });
 
   const handleOpenWorkspace = (contractId: string) => {
     navigate(`/workspace/${contractId}`);
   };
 
   const handleMessage = (freelancerId: string, freelancerName: string) => {
-    navigate(
-      `/messages?to=${freelancerId}&name=${encodeURIComponent(freelancerName)}`
-    );
+    navigate(`/messages?to=${freelancerId}&name=${encodeURIComponent(freelancerName)}`);
   };
 
   if (isLoading) {
@@ -98,9 +84,13 @@ export default function ActiveProjects() {
       <div className="mx-auto max-w-6xl">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-extrabold text-ink-900">Active Projects</h1>
+          <h1 className="text-3xl font-extrabold text-ink-900">
+            {mode === "active" ? "Active Projects" : "Completed Project"}
+          </h1>
           <p className="mt-2 text-base text-ink-500">
-            Monitor your ongoing projects, manage milestones, and collaborate with freelancers.
+            {mode === "active"
+              ? "Monitor your ongoing projects, manage milestones, and collaborate with freelancers."
+              : "Projects your freelancers have finished and you've approved."}
           </p>
         </div>
 
@@ -154,44 +144,8 @@ export default function ActiveProjects() {
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex gap-2">
-            <button
-              onClick={() => setFilterStatus("all")}
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors",
-                filterStatus === "all"
-                  ? "bg-brand-600 text-white"
-                  : "border border-surface-border bg-surface-card text-ink-700 hover:bg-surface-muted"
-              )}
-            >
-              All
-            </button>
-            <button
-              onClick={() => setFilterStatus("active")}
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors",
-                filterStatus === "active"
-                  ? "bg-brand-600 text-white"
-                  : "border border-surface-border bg-surface-card text-ink-700 hover:bg-surface-muted"
-              )}
-            >
-              Active
-            </button>
-            <button
-              onClick={() => setFilterStatus("completed")}
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors",
-                filterStatus === "completed"
-                  ? "bg-brand-600 text-white"
-                  : "border border-surface-border bg-surface-card text-ink-700 hover:bg-surface-muted"
-              )}
-            >
-              Completed
-            </button>
-          </div>
-
+        {/* Search */}
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end">
           <input
             type="text"
             placeholder="Search projects..."
@@ -205,9 +159,13 @@ export default function ActiveProjects() {
         {filteredContracts.length === 0 ? (
           <div className="rounded-2xl border border-surface-border bg-surface-card p-12 text-center">
             <Briefcase className="mx-auto h-12 w-12 text-ink-300" />
-            <p className="mt-4 text-base font-semibold text-ink-700">No projects found</p>
+            <p className="mt-4 text-base font-semibold text-ink-700">
+              {mode === "active" ? "No active projects found" : "No completed projects yet"}
+            </p>
             <p className="mt-1 text-sm text-ink-500">
-              When you accept a proposal, your project will appear here.
+              {mode === "active"
+                ? "When you accept a proposal, your project will appear here."
+                : "Once a freelancer's submitted project is approved, it will appear here."}
             </p>
           </div>
         ) : (
@@ -231,14 +189,6 @@ export default function ActiveProjects() {
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    {contract.status === "submitted" && (
-                      <Button
-                        variant="secondary"
-                        onClick={() => navigate(ROUTES.CLIENT_SUBMITTED_PROJECTS)}
-                      >
-                        Review Submission
-                      </Button>
-                    )}
                     <Button
                       onClick={() => handleOpenWorkspace(contract.id)}
                       icon={<ChevronRight className="h-4 w-4" />}
@@ -336,4 +286,8 @@ export default function ActiveProjects() {
       </div>
     </DashboardLayout>
   );
+}
+
+export default function ActiveProjects() {
+  return <ProjectsPage mode="active" />;
 }

@@ -527,8 +527,8 @@ export default function FreelancerProfilePage() {
                         <Input
                           label="Hourly Rate (₹/hr)"
                           type="number"
-                          value={editHourlyRate}
-                          onChange={(e) => setEditHourlyRate(Number(e.target.value))}
+                          value={editHourlyRate || ""}
+                          onChange={(e) => setEditHourlyRate(e.target.value === "" ? 0 : Number(e.target.value))}
                         />
                       </>
                     )}

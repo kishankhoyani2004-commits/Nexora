@@ -19,6 +19,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Toggle } from "@/components/ui/Toggle";
 import { useAuth } from "@/context/AuthContext";
 import { useNotification } from "@/context/NotificationContext";
+import { useConfirm } from "@/context/ConfirmContext";
 import { useDebounce } from "@/hooks/useDebounce";
 import { jobService } from "@/services/job.service";
 import { savedJobService } from "@/services/savedJob.service";
@@ -86,6 +87,7 @@ export default function BrowseJobs() {
   const navigate    = useNavigate();
   const queryClient = useQueryClient();
   const { notify }  = useNotification();
+  const confirm     = useConfirm();
   const [searchParams, setSearchParams] = useSearchParams();
   const isClient = user?.role === "client";
 
@@ -297,7 +299,7 @@ export default function BrowseJobs() {
                   <div className="flex shrink-0 items-center gap-2">
                     <Button variant="outline" size="sm" icon={<Edit className="h-3.5 w-3.5" />} iconPosition="left" onClick={() => startEdit(job)}>Edit</Button>
                     <Button variant="danger" size="sm" icon={<Trash2 className="h-3.5 w-3.5" />} iconPosition="left"
-                      onClick={() => { if (confirm("Delete this job?")) deleteMutation.mutate(job.id); }}
+                      onClick={async () => { if (await confirm({ title: "Delete Job", message: "Delete this job?", confirmLabel: "Delete" })) deleteMutation.mutate(job.id); }}
                       isLoading={deleteMutation.isPending}>Delete</Button>
                   </div>
                 </div>
@@ -322,8 +324,8 @@ export default function BrowseJobs() {
                     className="w-full rounded-xl border border-surface-border bg-surface-card p-3 text-sm text-ink-900 outline-none focus:border-brand-500" required />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <Input label="Min Budget (₹)" type="number" value={editForm.budgetMin} onChange={(e) => setEditForm({ ...editForm, budgetMin: +e.target.value })} />
-                  <Input label="Max Budget (₹)" type="number" value={editForm.budgetMax} onChange={(e) => setEditForm({ ...editForm, budgetMax: +e.target.value })} />
+                  <Input label="Min Budget (₹)" type="number" value={editForm.budgetMin || ""} onChange={(e) => setEditForm({ ...editForm, budgetMin: e.target.value === "" ? 0 : +e.target.value })} />
+                  <Input label="Max Budget (₹)" type="number" value={editForm.budgetMax || ""} onChange={(e) => setEditForm({ ...editForm, budgetMax: e.target.value === "" ? 0 : +e.target.value })} />
                 </div>
                 <Select label="Experience Level" value={editForm.experienceLevel} onChange={(e) => setEditForm({ ...editForm, experienceLevel: e.target.value })}>
                   <option value="entry">Entry</option>

@@ -14,6 +14,8 @@ const ForgotPassword = lazy(() => import("@/pages/auth/ForgotPassword"));
 const ClientDashboard = lazy(() => import("@/pages/client/ClientDashboard"));
 const ClientActivityFeed = lazy(() => import("@/pages/client/ClientActivityFeed"));
 const ClientAnalytics = lazy(() => import("@/pages/client/ClientAnalytics"));
+const ClientReports = lazy(() => import("@/pages/client/ClientReports"));
+const ClientTeamPerformance = lazy(() => import("@/pages/client/ClientTeamPerformance"));
 const ClientPayments  = lazy(() => import("@/pages/client/ClientPayments"));
 const ClientPostJob   = lazy(() => import("@/pages/client/PostJob"));
 const ClientMyJobs    = lazy(() => import("@/pages/client/MyJobs"));
@@ -23,6 +25,7 @@ const ClientMilestones = lazy(() => import("@/pages/client/ClientMilestones"));
 const ClientContracts = lazy(() => import("@/pages/client/ClientContracts"));
 const ClientProjectFiles = lazy(() => import("@/pages/client/ClientProjectFiles"));
 const ClientActiveProjects = lazy(() => import("@/pages/client/ActiveProjects"));
+const ClientCompletedProjects = lazy(() => import("@/pages/client/CompletedProjects"));
 const ClientCompanyProfile = lazy(() => import("@/pages/client/ClientCompanyProfile"));
 const ClientReviews = lazy(() => import("@/pages/client/ClientReviews"));
 const ClientSavedFreelancers = lazy(() => import("@/pages/client/SavedFreelancers"));
@@ -37,6 +40,10 @@ const FreelancerAnalytics = lazy(() => import("@/pages/freelancer/FreelancerAnal
 const FreelancerEarnings = lazy(() => import("@/pages/freelancer/FreelancerEarnings"));
 const FreelancerReviews = lazy(() => import("@/pages/freelancer/FreelancerReviews"));
 const FreelancerActiveProjects = lazy(() => import("@/pages/freelancer/ActiveProjects"));
+const FreelancerCompletedProjects = lazy(() => import("@/pages/freelancer/CompletedProjects"));
+const FreelancerMilestones = lazy(() => import("@/pages/freelancer/Milestones"));
+const FreelancerDeliverables = lazy(() => import("@/pages/freelancer/Deliverables"));
+const FreelancerTimeTracking = lazy(() => import("@/pages/freelancer/TimeTracking"));
 
 // Shared feature pages
 const BrowseJobs = lazy(() => import("@/pages/jobs/BrowseJobs"));
@@ -50,6 +57,7 @@ const Messages = lazy(() => import("@/pages/messages/Messages"));
 const Workspace = lazy(() => import("@/pages/workspace/Workspace"));
 const FreelancerProfilePage = lazy(() => import("@/pages/profile/FreelancerProfilePage"));
 const Settings = lazy(() => import("@/pages/settings/Settings"));
+const SecuritySettings = lazy(() => import("@/pages/settings/SecuritySettings"));
 const Notifications = lazy(() => import("@/pages/notifications/Notifications"));
 const HelpCenter = lazy(() => import("@/pages/help/HelpCenter"));
 const AiAssistant = lazy(() => import("@/pages/ai-assistant/AiAssistant"));
@@ -100,6 +108,14 @@ export function AppRoutes() {
           element={<ProtectedRoute allowedRoles={["client"]}><ClientAnalytics /></ProtectedRoute>}
         />
         <Route
+          path={ROUTES.CLIENT_REPORTS}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientReports /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.CLIENT_TEAM_PERFORMANCE}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientTeamPerformance /></ProtectedRoute>}
+        />
+        <Route
           path={ROUTES.CLIENT_PAYMENTS}
           element={<ProtectedRoute allowedRoles={["client"]}><ClientPayments /></ProtectedRoute>}
         />
@@ -128,6 +144,10 @@ export function AppRoutes() {
         <Route
           path={ROUTES.CLIENT_ACTIVE_PROJECTS}
           element={<ProtectedRoute allowedRoles={["client"]}><ClientActiveProjects /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.CLIENT_COMPLETED_PROJECTS}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientCompletedProjects /></ProtectedRoute>}
         />
         <Route
           path={ROUTES.CLIENT_PROFILE}
@@ -191,6 +211,22 @@ export function AppRoutes() {
           path={ROUTES.FREELANCER_ACTIVE_PROJECTS}
           element={<ProtectedRoute allowedRoles={["freelancer"]}><FreelancerActiveProjects /></ProtectedRoute>}
         />
+        <Route
+          path={ROUTES.FREELANCER_COMPLETED_PROJECTS}
+          element={<ProtectedRoute allowedRoles={["freelancer"]}><FreelancerCompletedProjects /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.FREELANCER_MILESTONES}
+          element={<ProtectedRoute allowedRoles={["freelancer"]}><FreelancerMilestones /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.FREELANCER_DELIVERABLES}
+          element={<ProtectedRoute allowedRoles={["freelancer"]}><FreelancerDeliverables /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.FREELANCER_TIME_TRACKING}
+          element={<ProtectedRoute allowedRoles={["freelancer"]}><FreelancerTimeTracking /></ProtectedRoute>}
+        />
 
         {/* ── Jobs / Find Work ─────────────────────────────────────── */}
         <Route
@@ -252,6 +288,10 @@ export function AppRoutes() {
         <Route
           path={ROUTES.SETTINGS}
           element={<ProtectedRoute><Settings /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.SETTINGS_SECURITY}
+          element={<ProtectedRoute><SecuritySettings /></ProtectedRoute>}
         />
         <Route
           path={ROUTES.NOTIFICATIONS}

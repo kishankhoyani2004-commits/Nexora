@@ -39,6 +39,31 @@ export interface ReleasableMilestoneDto {
   submissionUrl?:     string;
 }
 
+export interface ClientFinanceMonthPoint {
+  month: string;
+  year: number;
+  amount: number;
+}
+
+export interface ClientRecentPayment {
+  id: string;
+  projectTitle: string;
+  freelancerName: string;
+  amount: number;
+  status: string;
+  date: string;
+}
+
+export interface ClientFinanceDashboard {
+  pendingPayments: { count: number; amount: number };
+  completedPayments: { count: number; amount: number };
+  upcomingPayments: { count: number; amount: number };
+  totalSpent: number;
+  monthlySpending: number;
+  monthlySpendingChart: ClientFinanceMonthPoint[];
+  recentPayments: ClientRecentPayment[];
+}
+
 export const paymentService = {
   /** Transaction history for the authenticated user, optionally filtered by display status */
   listTransactions: (status?: "completed" | "pending" | "refunded") =>
@@ -74,4 +99,8 @@ export const paymentService = {
     apiClient.post<ApiResponse<PaymentIntentDto>>("/payments/intent", {
       contractId,
     }),
+
+  /** Client Finance Dashboard summary — pending/completed/upcoming, spending chart, recent payments */
+  getDashboard: () =>
+    apiClient.get<ApiResponse<ClientFinanceDashboard>>("/payments/dashboard"),
 };

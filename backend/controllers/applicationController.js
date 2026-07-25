@@ -152,4 +152,22 @@ export const applicationController = {
       });
     }
   },
+
+  // ── Get full Earnings Dashboard payload ──
+  getEarningsDashboard: async (req, res) => {
+    try {
+      const freelancerId = req.user.id;
+      const dashboard = await earningService.getDashboard(freelancerId);
+
+      res.json({
+        success: true,
+        data: dashboard,
+      });
+    } catch (err) {
+      res.status(500).json({
+        success: false,
+        message: err.message,
+      });
+    }
+  },
 };

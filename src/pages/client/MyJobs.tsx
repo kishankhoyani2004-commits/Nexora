@@ -581,11 +581,11 @@ export default function MyJobs() {
 
               <div className="grid grid-cols-2 gap-4">
                 <Input label="Min Budget (₹)" type="number" min={0}
-                  value={editState.budgetMin}
-                  onChange={(e) => setEditState({ ...editState, budgetMin: Number(e.target.value) })} />
+                  value={editState.budgetMin || ""}
+                  onChange={(e) => setEditState({ ...editState, budgetMin: e.target.value === "" ? 0 : Number(e.target.value) })} />
                 <Input label="Max Budget (₹)" type="number" min={0}
-                  value={editState.budgetMax}
-                  onChange={(e) => setEditState({ ...editState, budgetMax: Number(e.target.value) })} />
+                  value={editState.budgetMax || ""}
+                  onChange={(e) => setEditState({ ...editState, budgetMax: e.target.value === "" ? 0 : Number(e.target.value) })} />
               </div>
 
               <Select label="Experience Level" value={editState.experience}

@@ -5,6 +5,7 @@ import Job from "../models/Job.js";
 import { refundPaymentIntent } from "./stripeService.js";
 import { logActivity } from "./workspaceService.js";
 import { notifyUser } from "./notificationService.js";
+import { generateInvoiceForEarning, markInvoiceRefunded } from "./invoiceService.js";
 
 const otherPartyId = (contract, userId) =>
   contract.client.toString() === userId ? contract.freelancer.toString() : contract.client.toString();
@@ -92,6 +93,7 @@ export const releaseMilestonePayment = async ({ milestoneId, actorId, io }) => {
     });
   }
   await earning.save();
+  await generateInvoiceForEarning(earning);
 
   milestone.status = "approved";
   milestone.progress = 100;
@@ -155,6 +157,7 @@ export const releaseContractPayment = async ({ contractId, actorId, io }) => {
     });
   }
   await earning.save();
+  await generateInvoiceForEarning(earning);
 
   return earning;
 };
@@ -184,6 +187,7 @@ export const refundEarning = async ({ earningId, actorId, io }) => {
   earning.status = "refunded";
   earning.paidAt = new Date();
   await earning.save();
+  await markInvoiceRefunded(earning._id);
 
   if (contract) {
     // Only cascade the contract-level escrow status when nothing else on it

@@ -425,6 +425,58 @@ export const listMyFiles = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/workspaces/my-deliverables
+ * Every deliverable package across every contract the requesting user is
+ * party to — powers the sidebar's cross-project "Deliverables" page.
+ */
+export const listMyDeliverables = async (req, res, next) => {
+  try {
+    const role = req.user.role;
+    const contractFilter = role === "freelancer" ? { freelancer: req.user._id } : { client: req.user._id };
+    const contracts = await Contract.find(contractFilter).select("title client freelancer");
+
+    const contractIds = contracts.map((c) => c._id);
+    const deliverables = await Deliverable.find({ contract: { $in: contractIds } }).sort({ createdAt: -1 });
+
+    const contractMap = new Map(contracts.map((c) => [c._id.toString(), c]));
+    const items = deliverables.map((d) => ({
+      deliverable: d,
+      contract: contractMap.get(d.contract.toString()) || null,
+    }));
+
+    res.status(200).json({ success: true, data: items });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/workspaces/my-time-logs
+ * Every time log across every contract the requesting user is party to —
+ * powers the sidebar's cross-project "Time Tracking" page.
+ */
+export const listMyTimeLogs = async (req, res, next) => {
+  try {
+    const role = req.user.role;
+    const contractFilter = role === "freelancer" ? { freelancer: req.user._id } : { client: req.user._id };
+    const contracts = await Contract.find(contractFilter).select("title client freelancer");
+
+    const contractIds = contracts.map((c) => c._id);
+    const timeLogs = await TimeLog.find({ contract: { $in: contractIds } }).sort({ createdAt: -1 });
+
+    const contractMap = new Map(contracts.map((c) => [c._id.toString(), c]));
+    const items = timeLogs.map((t) => ({
+      timeLog: t,
+      contract: contractMap.get(t.contract.toString()) || null,
+    }));
+
+    res.status(200).json({ success: true, data: items });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const createMilestone = async (req, res, next) => {
   try {
     const { title, description, budget, dueDate } = req.body;

@@ -24,6 +24,8 @@ import {
   reviewMilestone,
   listMyMilestones,
   listMyFiles,
+  listMyDeliverables,
+  listMyTimeLogs,
   getDeliverables,
   createDeliverable,
   getTimeLogs,
@@ -55,10 +57,13 @@ router.get("/submitted-projects", protect, authorize("client", "admin"), listSub
 // My Submissions (freelancer-wide submission history — must stay above "/:projectId")
 router.get("/my-submissions", protect, authorize("freelancer", "admin"), listMySubmissions);
 
-// Cross-project Milestones & Files — powers the sidebar's "Milestones" /
-// "Project Files" pages (all contracts, not a single project's tab)
+// Cross-project Milestones, Files, Deliverables & Time Logs — powers the
+// sidebar's "Milestones" / "Project Files" / "Deliverables" / "Time
+// Tracking" pages (all contracts, not a single project's tab)
 router.get("/my-milestones", protect, listMyMilestones);
 router.get("/my-files", protect, listMyFiles);
+router.get("/my-deliverables", protect, listMyDeliverables);
+router.get("/my-time-logs", protect, listMyTimeLogs);
 
 // Overview & Activity
 router.get("/:projectId/overview", guard, getOverview);
