@@ -17,6 +17,14 @@ const messageSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    // Scopes a message to a specific Active Project's workspace chat.
+    // Null for the general user-to-user inbox (unrelated to any project).
+    contract: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Contract",
+      default: null,
+      index: true,
+    },
     content: {
       type: String,
       required: true,
@@ -24,6 +32,10 @@ const messageSchema = new mongoose.Schema(
     read: {
       type: Boolean,
       default: false,
+    },
+    readAt: {
+      type: Date,
+      default: null,
     },
   },
   {

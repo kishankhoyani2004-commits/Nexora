@@ -259,17 +259,17 @@ export function FindWorkJobCard({
 
       {/* Meta grid */}
       <div className="mb-3 grid grid-cols-3 gap-2 rounded-xl bg-surface-muted p-3 text-center text-[11px]">
-        <div>
+        <div className="min-w-0">
           <p className="uppercase tracking-wide text-ink-400">Budget</p>
-          <p className="mt-0.5 font-bold text-ink-900 text-xs">{budgetLabel}</p>
+          <p className="mt-0.5 font-bold text-ink-900 text-xs truncate">{budgetLabel}</p>
         </div>
-        <div className="border-x border-surface-border">
+        <div className="border-x border-surface-border min-w-0">
           <p className="uppercase tracking-wide text-ink-400">Level</p>
-          <p className="mt-0.5 font-bold text-ink-900 capitalize text-xs">{job.experienceLevel}</p>
+          <p className="mt-0.5 font-bold text-ink-900 capitalize text-xs truncate">{job.experienceLevel}</p>
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="uppercase tracking-wide text-ink-400">Duration</p>
-          <p className="mt-0.5 font-bold text-ink-900 text-xs leading-tight">{job.duration}</p>
+          <p className="mt-0.5 font-bold text-ink-900 text-xs leading-tight truncate">{job.duration}</p>
         </div>
       </div>
 

@@ -8,18 +8,35 @@ import {
   type ReactNode,
 } from "react";
 import type { AuthCredentials, RegisterPayload, User } from "@/types";
-import { loginUser, registerUser, getGithubRedirectResult } from "@/services/auth.service";
-import { apiClient, setUnauthorizedHandler } from "@/lib/axios";
+import {
+  loginUser,
+  registerUser,
+  verifyEmailCode,
+  resendVerificationCode as resendVerificationCodeRequest,
+} from "@/services/auth.service";
+import { apiClient, setUnauthorizedHandler, authStorage } from "@/lib/axios";
 import { getFirestoreUser } from "@/firebase/firestore.service";
 import { auth } from "@/firebase/firebase";
+import { connectSocket, disconnectSocket } from "@/lib/socket";
+
+/** Returned by register() for a brand-new local account: no session exists
+ *  yet until the user enters the code emailed to them. */
+export interface RequiresVerification {
+  requiresVerification: true;
+  email: string;
+}
 
 interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (credentials: AuthCredentials) => Promise<User>;
-  loginWithToken: (token: string) => Promise<User>;
-  register: (payload: RegisterPayload) => Promise<User>;
+  /** `remember` (default true) picks localStorage vs sessionStorage for the
+   *  session — unchecking "Remember me" signs the user out when the browser closes. */
+  login: (credentials: AuthCredentials, remember?: boolean) => Promise<User>;
+  loginWithToken: (token: string, refreshToken?: string) => Promise<User>;
+  register: (payload: RegisterPayload) => Promise<User | RequiresVerification>;
+  verifyEmail: (email: string, code: string) => Promise<User>;
+  resendVerificationCode: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   updateUser: (updatedUser: User) => void;
 }
@@ -30,41 +47,43 @@ const STORAGE_KEY = "nexora_user";
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = authStorage.get(STORAGE_KEY);
       return stored ? (JSON.parse(stored) as User) : null;
     } catch {
-      localStorage.removeItem(STORAGE_KEY);
+      authStorage.remove(STORAGE_KEY);
       return null;
     }
   });
 
   const [isLoading, setIsLoading] = useState(
-    () => !!localStorage.getItem("nexora_access_token")
+    () => !!authStorage.get("nexora_access_token")
   );
 
   // ── persist ────────────────────────────────────────────────────────────────
-  const persist = useCallback((nextUser: User | null) => {
+  // `remember` only matters when writing a *new* user (login/register/etc.);
+  // clearing always wipes both storages so a stale session can't linger.
+  const persist = useCallback((nextUser: User | null, remember = true) => {
     setUser(nextUser);
     if (nextUser) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextUser));
+      authStorage.set(STORAGE_KEY, JSON.stringify(nextUser), remember);
     } else {
-      localStorage.removeItem(STORAGE_KEY);
-      localStorage.removeItem("token");
-      localStorage.removeItem("nexora_access_token");
-      localStorage.removeItem("nexora_refresh_token");
+      authStorage.remove(STORAGE_KEY);
+      authStorage.remove("nexora_access_token");
+      authStorage.remove("nexora_refresh_token");
     }
   }, []);
 
   // ── logout ─────────────────────────────────────────────────────────────────
   const logout = useCallback(async () => {
     try {
-      const rt = localStorage.getItem("nexora_refresh_token");
+      const rt = authStorage.get("nexora_refresh_token");
       await apiClient.post("/auth/logout", rt ? { token: rt } : {});
     } catch {
       // always clear local state regardless
     }
     // Sign out of Firebase too so subsequent popup calls start fresh
     try { await auth.signOut(); } catch { /* ignore */ }
+    disconnectSocket();
     persist(null);
   }, [persist]);
 
@@ -73,30 +92,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUnauthorizedHandler(logout);
   }, [logout]);
 
+  // Real-time notifications/presence need a live socket connection as soon as
+  // the user is authenticated anywhere in the app, not only while a Workspace
+  // page happens to be mounted — so this reconnects (with a fresh token)
+  // whenever `user` transitions from null to set, covering login, register,
+  // OAuth, and rehydration-on-refresh in one place.
+  useEffect(() => {
+    if (user) connectSocket();
+  }, [user]);
+
   // ── Mount: validate token + merge Firestore data ───────────────────────────
   useEffect(() => {
     let cancelled = false;
 
     const init = async () => {
-      // 1. Handle GitHub redirect result (popup-blocked fallback)
-      try {
-        const redirectData = await getGithubRedirectResult();
-        if (redirectData && !cancelled) {
-          localStorage.setItem("token", redirectData.token);
-          localStorage.setItem("nexora_access_token", redirectData.token);
-          if (redirectData.refreshToken) {
-            localStorage.setItem("nexora_refresh_token", redirectData.refreshToken);
-          }
-          persist(redirectData.user);
-          setIsLoading(false);
-          return;
-        }
-      } catch (err: any) {
-        console.error("[AuthContext] GitHub redirect error:", err.message);
-      }
-
-      // 2. Rehydrate from stored token
-      const token = localStorage.getItem("nexora_access_token");
+      // Rehydrate from stored token
+      const token = authStorage.get("nexora_access_token");
       if (!token) {
         if (!cancelled) setIsLoading(false);
         return;
@@ -139,16 +150,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── login ──────────────────────────────────────────────────────────────────
-  const login = useCallback(async (credentials: AuthCredentials) => {
+  const login = useCallback(async (credentials: AuthCredentials, remember = true) => {
     const data = await loginUser(credentials);
-    persist(data.user);
-    localStorage.setItem("token", data.token);
-    localStorage.setItem("nexora_access_token", data.token);
-    if (data.refreshToken) localStorage.setItem("nexora_refresh_token", data.refreshToken);
+    persist(data.user, remember);
+    authStorage.set("nexora_access_token", data.token, remember);
+    if (data.refreshToken) authStorage.set("nexora_refresh_token", data.refreshToken, remember);
     return data.user;
   }, [persist]);
 
   // ── register ───────────────────────────────────────────────────────────────
+  // A brand-new local account has no session yet — the backend withholds
+  // tokens until the emailed code is confirmed via verifyEmail() below.
+  // OAuth-backed registrations (Firebase fallback) are verified by the
+  // provider already, so those still come back with a token immediately.
   const register = useCallback(async (payload: RegisterPayload) => {
     const data = await registerUser({
       fullName: payload.fullName,
@@ -156,21 +170,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password: payload.password,
       role: payload.role,
     });
-    if (data.token) {
-      persist(data.user);
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("nexora_access_token", data.token);
-      if (data.refreshToken) localStorage.setItem("nexora_refresh_token", data.refreshToken);
+    if (data.requiresVerification) {
+      return { requiresVerification: true, email: data.email } as RequiresVerification;
     }
-    return data.user;
+    persist(data.user);
+    authStorage.set("nexora_access_token", data.token, true);
+    if (data.refreshToken) authStorage.set("nexora_refresh_token", data.refreshToken, true);
+    return data.user as User;
   }, [persist]);
 
+  // ── verifyEmail (completes registration, issues the first session) ────────
+  const verifyEmail = useCallback(async (email: string, code: string) => {
+    const data = await verifyEmailCode(email, code);
+    persist(data.user);
+    authStorage.set("nexora_access_token", data.token, true);
+    if (data.refreshToken) authStorage.set("nexora_refresh_token", data.refreshToken, true);
+    return data.user as User;
+  }, [persist]);
+
+  // ── resendVerificationCode ─────────────────────────────────────────────────
+  const resendVerificationCode = useCallback(async (email: string) => {
+    await resendVerificationCodeRequest(email);
+  }, []);
+
   // ── loginWithToken (used after OAuth popup) ────────────────────────────────
-  const loginWithToken = useCallback(async (token: string) => {
+  const loginWithToken = useCallback(async (token: string, refreshToken?: string) => {
     setIsLoading(true);
     try {
-      localStorage.setItem("token", token);
-      localStorage.setItem("nexora_access_token", token);
+      authStorage.set("nexora_access_token", token, true);
+      if (refreshToken) authStorage.set("nexora_refresh_token", refreshToken, true);
 
       const res = await apiClient.get<{ success: boolean; user: User }>("/auth/me", {
         headers: { Authorization: `Bearer ${token}` },
@@ -208,10 +236,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       loginWithToken,
       register,
+      verifyEmail,
+      resendVerificationCode,
       logout,
       updateUser,
     }),
-    [user, isLoading, login, loginWithToken, register, logout, updateUser]
+    [user, isLoading, login, loginWithToken, register, verifyEmail, resendVerificationCode, logout, updateUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

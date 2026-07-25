@@ -16,6 +16,7 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
+.claude/
 .DS_Store
 *.suo
 *.ntvs*
@@ -33,3 +34,6 @@ build/
 
 # Uploads
 uploads/
+
+# Local MongoDB data
+backend/data/

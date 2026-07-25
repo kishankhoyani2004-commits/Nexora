@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { ROUTES } from "@/constants/routes";
+import { getRedirectPath } from "@/utils/getRedirectPath";
 import type { UserRole } from "@/types";
 
 interface ProtectedRouteProps {
-  children: ReactNode;
+  children:      ReactNode;
   allowedRoles?: UserRole[];
 }
 
@@ -16,13 +16,13 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
   if (isLoading) return null;
 
   if (!isAuthenticated) {
-    return <Navigate to={ROUTES.LOGIN} replace />;
+    return <Navigate to="/login" replace />;
   }
 
+  // If this route restricts roles and the logged-in user's role isn't in the list,
+  // send them to their own correct dashboard instead of a 403.
   if (allowedRoles && user?.role && !allowedRoles.includes(user.role)) {
-    const fallback =
-      user.role === "admin" ? ROUTES.ADMIN_DASHBOARD : ROUTES.FREELANCER_DASHBOARD;
-    return <Navigate to={fallback} replace />;
+    return <Navigate to={getRedirectPath(user.role)} replace />;
   }
 
   return <>{children}</>;

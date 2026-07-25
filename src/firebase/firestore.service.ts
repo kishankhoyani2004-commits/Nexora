@@ -39,9 +39,27 @@ function isFirestoreUnavailable(err: unknown): boolean {
   return (
     msg.includes("database") ||
     msg.includes("not found") ||
+    msg.includes("timed out") ||
     msg.includes("failed to get document because the client is offline") ||
     msg.includes("could not reach cloud firestore backend")
   );
+}
+
+/**
+ * A misconfigured/missing Firestore database doesn't always reject quickly —
+ * the SDK's underlying stream can retry with backoff for a long time before
+ * a getDoc()/setDoc() call ever settles. Race every call against a hard
+ * timeout so a Firestore outage can never hang auth (register/login).
+ */
+const FIRESTORE_TIMEOUT_MS = 4000;
+
+function withTimeout<T>(promise: Promise<T>, ms = FIRESTORE_TIMEOUT_MS): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error("Firestore request timed out")), ms)
+    ),
+  ]);
 }
 
 /**
@@ -71,7 +89,7 @@ export async function upsertFirestoreUser(
   if (_firestoreDisabled) return;
   try {
     const ref = doc(db, "users", uid);
-    const existing = await getDoc(ref);
+    const existing = await withTimeout(getDoc(ref));
 
     const payload: PartialWithFieldValue<FirestoreUser> = {
       ...data,
@@ -80,7 +98,7 @@ export async function upsertFirestoreUser(
       ...(existing.exists() ? {} : { createdAt: serverTimestamp() }),
     };
 
-    await setDoc(ref, payload, { merge: true });
+    await withTimeout(setDoc(ref, payload, { merge: true }));
   } catch (err) {
     markDisabled(err);
     // Non-fatal — MongoDB is still the source of truth for the API
@@ -95,7 +113,7 @@ export async function getFirestoreUser(uid: string): Promise<FirestoreUser | nul
   if (_firestoreDisabled) return null;
   try {
     const ref = doc(db, "users", uid);
-    const snap = await getDoc(ref);
+    const snap = await withTimeout(getDoc(ref));
     if (!snap.exists()) return null;
     return snap.data() as FirestoreUser;
   } catch (err) {

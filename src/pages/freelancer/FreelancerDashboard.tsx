@@ -6,6 +6,7 @@ import {
   Calendar, Sparkles, Bell, ArrowRight, Bookmark, ChevronRight,
   Search, LayoutGrid, Clock, TrendingUp,
   CheckCircle2, AlertCircle, RefreshCw, ExternalLink,
+  Mail, XCircle, Loader2,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatCard } from "@/components/cards/StatCard";
@@ -23,8 +24,10 @@ import { messageService } from "@/services/message.service";
 import { notificationService } from "@/services/notification.service";
 import { savedJobService } from "@/services/savedJob.service";
 import { jobAlertService } from "@/services/jobAlert.service";
+import { invitationService } from "@/services/invitation.service";
 import { formatCurrency, formatRelativeTime } from "@/utils/formatters";
 import { cn } from "@/utils/cn";
+import { getTimeBasedGreeting, getPortalTagline } from "@/utils/greeting";
 import { ROUTES } from "@/constants/routes";
 import type { Contract } from "@/types";
 import type { RecommendedJob } from "@/services/job.service";
@@ -61,20 +64,7 @@ export default function FreelancerDashboard() {
   const queryClient = useQueryClient();
   const { notify }  = useNotification();
 
-  // Dashboard search — redirects to BrowseJobs with pre-filled query
-  const [dashSearch, setDashSearch] = useState("");
-
   const firstName = user?.fullName?.split(" ")[0] ?? "there";
-  const today     = new Date().toLocaleDateString("en-US", {
-    weekday: "long", month: "long", day: "numeric",
-  });
-
-  function handleDashboardSearch(e: React.FormEvent) {
-    e.preventDefault();
-    if (dashSearch.trim()) {
-      navigate(`${ROUTES.JOBS}?q=${encodeURIComponent(dashSearch.trim())}`);
-    }
-  }
 
   // ── Data fetching ───────────────────────────────────────────────────
   const { data: statsRes, isLoading: statsLoading } = useQuery({
@@ -128,6 +118,13 @@ export default function FreelancerDashboard() {
     staleTime: 60_000,
   });
 
+  // Invitations from clients
+  const { data: invitationsRes, isLoading: invitationsLoading } = useQuery({
+    queryKey: ["freelancerInvitations"],
+    queryFn:  () => invitationService.listReceived(),
+    staleTime: 30_000,
+  });
+
   // ── Derived data ────────────────────────────────────────────────────
   const stats           = statsRes?.data?.data;
   const recJobs: RecommendedJob[] = (recJobsRes?.data?.data as any)?.items ?? [];
@@ -143,6 +140,9 @@ export default function FreelancerDashboard() {
   const userSkills      = user?.skills ?? [];
   const savedCount      = ((savedIdsRes?.data?.data as any) ?? []).length;
   const alertCount      = ((alertsRes?.data?.data as any) ?? []).filter((a: any) => a.active).length;
+  const allInvitations  = (invitationsRes?.data?.data as any)?.items ?? [];
+  const pendingInvitations = allInvitations.filter((i: any) => i.status === "pending").slice(0, 3);
+  const pendingInvitationCount = (invitationsRes?.data?.data as any)?.pendingCount ?? 0;
 
   // ── Save / unsave on dashboard recommended jobs ──────────────────────
   const savedIdsSet = new Set<string>((savedIdsRes?.data?.data as any) ?? []);
@@ -160,6 +160,16 @@ export default function FreelancerDashboard() {
   const handleSave = (jobId: string) => {
     saveMutation.mutate({ id: jobId, saving: !savedIdsSet.has(jobId) });
   };
+
+  const respondInvitationMutation = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: "accept" | "decline" }) =>
+      invitationService.respond(id, action),
+    onSuccess: (_, { action }) => {
+      queryClient.invalidateQueries({ queryKey: ["freelancerInvitations"] });
+      notify(action === "accept" ? "Invitation accepted." : "Invitation declined.", action === "accept" ? "success" : "info");
+    },
+    onError: (err: any) => notify(err.response?.data?.message || "Failed to respond.", "error"),
+  });
 
   function handleSoftRefresh() {
     queryClient.invalidateQueries();
@@ -193,21 +203,14 @@ export default function FreelancerDashboard() {
     {
       label: "Active Projects",    value: stats ? String(stats.activeProjects)       : "—",
       icon: FolderKanban,  tone: "info"    as const, href: ROUTES.WORKSPACE,
-      delta: stats?.totalContracts ? `${stats.totalContracts} total` : undefined,
     },
     {
       label: "Pending Proposals",  value: stats ? String(stats.pendingProposals)     : "—",
       icon: FileText,      tone: "warning" as const, href: ROUTES.PROPOSALS,
-      delta: stats?.acceptanceRate ? `${stats.acceptanceRate}% acceptance` : undefined,
-    },
-    {
-      label: "Unread Messages",    value: stats ? String(stats.unreadMessages)       : "—",
-      icon: MessageSquare, tone: "brand"   as const, href: ROUTES.MESSAGES,
     },
     {
       label: "Total Earnings",     value: stats ? formatCurrency(stats.totalEarnings): "—",
       icon: Wallet,        tone: "success" as const, href: ROUTES.FREELANCER_EARNINGS,
-      delta: stats?.inEscrow ? `+ ${formatCurrency(stats.inEscrow)} in escrow` : undefined,
     },
     {
       label: "Saved Jobs",         value: String(savedCount),
@@ -217,6 +220,10 @@ export default function FreelancerDashboard() {
       label: "Active Alerts",      value: String(alertCount),
       icon: BellRing,      tone: "warning" as const, href: ROUTES.JOB_ALERTS,
     },
+    {
+      label: "Invitations",        value: String(pendingInvitationCount),
+      icon: Mail,          tone: "brand"   as const, href: ROUTES.FREELANCER_INVITATIONS,
+    },
   ];
 
   return (
@@ -224,31 +231,16 @@ export default function FreelancerDashboard() {
       <div className="mx-auto max-w-screen-xl space-y-8 pb-12">
 
         {/* ── Welcome Header ─────────────────────────────────────────── */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface-card p-7 shadow-card md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-ink-900">
-              Welcome back, {firstName} 👋
+            <h1 className="text-2xl font-extrabold text-ink-900">
+              {getTimeBasedGreeting()}, {firstName}! 👋
             </h1>
-            <p className="mt-1 flex items-center gap-1.5 text-sm text-ink-500">
-              <Calendar className="h-3.5 w-3.5" />
-              {today}
+            <p className="mt-1.5 max-w-lg text-sm text-ink-500">
+              {getPortalTagline("freelancer")}
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:items-end">
-            {/* Dashboard search → redirects to BrowseJobs with query */}
-            <form onSubmit={handleDashboardSearch} className="flex items-center gap-2">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
-                <input
-                  type="text"
-                  value={dashSearch}
-                  onChange={(e) => setDashSearch(e.target.value)}
-                  placeholder="Search jobs, skills, companies…"
-                  className="h-10 w-64 rounded-xl border border-surface-border bg-surface-card pl-10 pr-3 text-sm text-ink-900 placeholder:text-ink-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
-                />
-              </div>
-              <Button type="submit" size="sm" variant="outline">Search</Button>
-            </form>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => navigate(ROUTES.NOTIFICATIONS)}
@@ -292,14 +284,13 @@ export default function FreelancerDashboard() {
                 <button
                   key={card.label}
                   onClick={() => navigate(card.href)}
-                  className="text-left transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded-2xl"
+                  className="w-full h-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded-2xl flex flex-col"
                 >
                   <StatCard
                     label={card.label}
                     value={card.value}
                     icon={card.icon}
                     tone={card.tone}
-                    delta={card.delta}
                   />
                 </button>
               ))}
@@ -422,6 +413,75 @@ export default function FreelancerDashboard() {
                           Apply
                         </Button>
                       </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* ── Invitations ─────────────────────────────────────────────── */}
+        <section aria-label="Invitations">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-bold text-ink-900">Invitations</h2>
+              <p className="text-xs text-ink-500">Clients who invited you to apply directly</p>
+            </div>
+            <Button variant="ghost" size="sm" icon={<ArrowRight className="h-4 w-4" />}
+              onClick={() => navigate(ROUTES.FREELANCER_INVITATIONS)}>
+              View all
+            </Button>
+          </div>
+
+          {invitationsLoading ? (
+            <div className="flex h-24 items-center justify-center rounded-2xl border border-surface-border bg-surface-card">
+              <Loader2 className="h-5 w-5 animate-spin text-brand-600" />
+            </div>
+          ) : pendingInvitations.length === 0 ? (
+            <EmptyState icon={Mail} title="No pending invitations"
+              description="When a client invites you to apply to their job directly, it will show up here." />
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {pendingInvitations.map((inv: any) => {
+                const client = typeof inv.client === "object" ? inv.client : null;
+                const job    = typeof inv.job === "object" ? inv.job : null;
+                const isResponding = respondInvitationMutation.isPending && respondInvitationMutation.variables?.id === inv.id;
+                return (
+                  <div key={inv.id} className="flex flex-col rounded-2xl border border-brand-200 bg-brand-50/40 p-5 shadow-card">
+                    <div className="mb-3 flex items-start gap-3">
+                      <Avatar src={client?.avatar} name={client?.fullName || "Client"} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-bold text-ink-900">{client?.companyName || client?.fullName || "A client"}</p>
+                        <p className="truncate text-xs text-ink-500">invited you to apply for</p>
+                        <p className="truncate text-sm font-semibold text-brand-700">{job?.title || "a job"}</p>
+                      </div>
+                    </div>
+                    <div className="mt-auto flex gap-2 pt-2">
+                      <button
+                        onClick={() => respondInvitationMutation.mutate({ id: inv.id, action: "accept" })}
+                        disabled={respondInvitationMutation.isPending}
+                        className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                      >
+                        {isResponding && respondInvitationMutation.variables?.action === "accept" ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                        )}
+                        Accept
+                      </button>
+                      <button
+                        onClick={() => respondInvitationMutation.mutate({ id: inv.id, action: "decline" })}
+                        disabled={respondInvitationMutation.isPending}
+                        className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-surface-border bg-surface-card px-3 py-2 text-xs font-bold text-ink-600 hover:bg-surface-muted transition-colors disabled:opacity-50"
+                      >
+                        {isResponding && respondInvitationMutation.variables?.action === "decline" ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <XCircle className="h-3.5 w-3.5" />
+                        )}
+                        Decline
+                      </button>
                     </div>
                   </div>
                 );

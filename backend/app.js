@@ -15,6 +15,8 @@ import userRoutes from "./routes/userRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import jobRoutes from "./routes/jobRoutes.js";
 import proposalRoutes from "./routes/proposalRoutes.js";
+import applicationRoutes from "./routes/applicationRoutes.js";
+import earningRoutes from "./routes/earningRoutes.js";
 import contractRoutes from "./routes/contractRoutes.js";
 import messageRoutes from "./routes/messageRoutes.js";
 import workspaceRoutes from "./routes/workspaceRoutes.js";
@@ -26,6 +28,9 @@ import adminRoutes from "./routes/adminRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import savedJobRoutes from "./routes/savedJobRoutes.js";
 import jobAlertRoutes from "./routes/jobAlertRoutes.js";
+import savedFreelancerRoutes from "./routes/savedFreelancerRoutes.js";
+import invitationRoutes from "./routes/invitationRoutes.js";
+import settingsRoutes from "./routes/settingsRoutes.js";
 
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 
@@ -49,6 +54,12 @@ app.use(
 
 // Logging
 app.use(morgan("dev"));
+
+// Stripe webhook signature verification needs the RAW request body, so this
+// must be registered before the global express.json() below — otherwise the
+// body would already be parsed into an object by the time it reaches
+// stripe.webhooks.constructEvent().
+app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
 
 // Body parsers & Cookie parsers
 app.use(express.json());
@@ -97,6 +108,8 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/profiles", profileRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/proposals", proposalRoutes);
+app.use("/api/applications", applicationRoutes);
+app.use("/api/earnings", earningRoutes);
 app.use("/api/contracts", contractRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/workspaces", workspaceRoutes);
@@ -107,6 +120,9 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/saved-jobs", savedJobRoutes);
 app.use("/api/job-alerts", jobAlertRoutes);
+app.use("/api/saved-freelancers", savedFreelancerRoutes);
+app.use("/api/invitations", invitationRoutes);
+app.use("/api/settings", settingsRoutes);
 
 // Test endpoint
 app.get("/", (req, res) => {

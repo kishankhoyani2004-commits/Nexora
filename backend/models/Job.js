@@ -37,6 +37,43 @@ const jobSchema = new mongoose.Schema(
       default: "open",
     },
     proposalsCount: { type: Number, default: 0 },
+    views:          { type: Number, default: 0 },
+
+    // ── Client Panel additions ────────────────────────────────────────────────
+    subcategory: { type: String, default: "" },
+    visibility:  { type: String, enum: ["public", "private"], default: "public" },
+    attachments: {
+      type: [
+        {
+          filename: { type: String },
+          url:      { type: String },
+          mimetype: { type: String },
+        },
+      ],
+      default: [],
+    },
+
+    // ── Module 2: Professional Post Job Settings ──────────────────────────────
+    englishLevel: {
+      type: String,
+      enum: ["basic", "intermediate", "advanced", "fluent"],
+      default: "intermediate",
+    },
+    freelancersNeeded: { type: Number, default: 1, min: 1 },
+    currency: { type: String, default: "INR" },
+    estimatedHours: { type: Number, default: 0 }, // for hourly jobs
+    featured: { type: Boolean, default: false },
+    urgent: { type: Boolean, default: false },
+    allowAIMatching: { type: Boolean, default: true },
+    allowMultipleProposals: { type: Boolean, default: true },
+    proposalDeadline: { type: Date, default: null },
+    projectStartDate: { type: Date, default: null },
+    expectedCompletionDate: { type: Date, default: null },
+
+    // ── AI-Ready fields (prepare, don't implement AI yet) ──────────────────────
+    suggestedBudget: { type: Number, default: null },
+    suggestedSkills: { type: [String], default: [] },
+    suggestedDescription: { type: String, default: "" },
   },
   { timestamps: true }
 );

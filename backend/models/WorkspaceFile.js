@@ -23,6 +23,25 @@ const workspaceFileSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    mimetype: {
+      type: String,
+      default: "",
+    },
+    sizeBytes: {
+      type: Number,
+      default: 0,
+    },
+    // Cloudinary public id (or local filename fallback) — needed to actually
+    // delete the underlying asset, not just the DB record.
+    publicId: {
+      type: String,
+      default: "",
+    },
+    uploadedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
   {
     timestamps: true,

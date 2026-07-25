@@ -16,6 +16,16 @@ const notificationSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    // e.g. "message", "file", "milestone", "task", "project", "approval"
+    type: {
+      type: String,
+      default: "general",
+    },
+    // Deep-link into the app (e.g. a specific workspace tab) for click-through.
+    link: {
+      type: String,
+      default: "",
+    },
     read: {
       type: Boolean,
       default: false,

@@ -81,9 +81,24 @@ export const send = async (req, res, next) => {
     const { conversationId } = req.params;
     const { content } = req.body;
 
-    // Parse recipient from conversationId (it contains both IDs: e.g. userId1-userId2)
-    const ids = conversationId.split("-");
-    const recipientId = ids.find((id) => id !== req.user.id);
+    // Prefer deriving the recipient from an existing message in this thread —
+    // conversationId isn't always a plain "userIdA-userIdB" pair (project
+    // workspace chat uses "workspace-<contractId>", see sockets/chatSocket.js),
+    // so parsing the string is only safe as a fallback for a brand-new
+    // conversation that has no messages yet.
+    const priorMessage = await Message.findOne({ conversationId }).sort({ createdAt: -1 });
+    let recipientId;
+    let contractId = null;
+    if (priorMessage) {
+      recipientId =
+        priorMessage.sender.toString() === req.user.id
+          ? priorMessage.recipient.toString()
+          : priorMessage.sender.toString();
+      contractId = priorMessage.contract;
+    } else {
+      const ids = conversationId.split("-");
+      recipientId = ids.find((id) => id !== req.user.id);
+    }
 
     if (!recipientId) {
       return res.status(400).json({ success: false, message: "Invalid conversation ID format." });
@@ -92,6 +107,7 @@ export const send = async (req, res, next) => {
     const message = await Message.create({
       sender: req.user._id,
       recipient: recipientId,
+      contract: contractId,
       conversationId,
       content,
       read: false,

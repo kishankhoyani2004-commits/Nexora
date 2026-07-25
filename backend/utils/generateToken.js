@@ -12,7 +12,7 @@ export const generateRefreshToken = (userId) => {
   return jwt.sign(
     { id: userId },
     process.env.JWT_SECRET || "nexora_secret_key",
-    { expiresIn: "7d" } // 7 days for refresh token
+    { expiresIn: "90d" } // must outlive the access token or /refresh-token is unusable
   );
 };
 

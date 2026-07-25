@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -111,6 +111,17 @@ export default function BrowseJobs() {
   const [page,           setPage]           = useState(Number(getParam("page","1")));
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
+  // ── Sidebar scroll position preservation ──────────────────────────────────
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const sidebarScrollRef = useRef<number>(0);
+
+  // Save scroll position before filter changes
+  useEffect(() => {
+    if (sidebarRef.current) {
+      sidebarScrollRef.current = sidebarRef.current.scrollTop;
+    }
+  }, [category, experienceLevels, workTypes, priceType, minBudget, maxBudget, clientRating, paymentVerified, postedWithin]);
+
   const debouncedSearch = useDebounce(search, 350);
 
   // ── Sync state → URL params (no page reload) ──────────────────────────────
@@ -167,6 +178,14 @@ export default function BrowseJobs() {
           }),
     staleTime: 60_000,
   });
+
+  // Restore sidebar scroll position after a filter-triggered refetch settles
+  // (must live after jobsLoading is declared above, not before it).
+  useEffect(() => {
+    if (sidebarRef.current && sidebarScrollRef.current > 0) {
+      sidebarRef.current.scrollTop = sidebarScrollRef.current;
+    }
+  }, [jobsLoading]);
 
   // Saved job IDs — for toggle state on cards
   const { data: savedIdsRes } = useQuery({
@@ -233,7 +252,7 @@ export default function BrowseJobs() {
   ].filter(Boolean).length;
 
   // ═══════════════════════════════════════════════════════════════════════
-  // CLIENT VIEW
+  // CLIENT VIEW — redirect to dedicated My Jobs page
   // ═══════════════════════════════════════════════════════════════════════
   if (isClient) {
     return (
@@ -243,7 +262,7 @@ export default function BrowseJobs() {
             <h1 className="text-2xl font-extrabold text-ink-900">My Posted Jobs</h1>
             <p className="text-sm text-ink-500">Manage your active job briefs and applicants.</p>
           </div>
-          <Button onClick={() => navigate(ROUTES.POST_JOB)} icon={<Plus className="h-4 w-4" />} iconPosition="left">
+          <Button onClick={() => navigate(ROUTES.CLIENT_POST_JOB)} icon={<Plus className="h-4 w-4" />} iconPosition="left">
             Post a Project
           </Button>
         </div>
@@ -255,7 +274,7 @@ export default function BrowseJobs() {
         ) : jobs.length === 0 ? (
           <EmptyState icon={ListIcon} title="No jobs posted yet"
             description="Create a project brief to match with elite freelancer talent."
-            action={<Button onClick={() => navigate(ROUTES.POST_JOB)}>Post a Job</Button>} />
+            action={<Button onClick={() => navigate(ROUTES.CLIENT_POST_JOB)}>Post a Job</Button>} />
         ) : (
           <div className="space-y-4">
             {jobs.map((job) => (
@@ -264,7 +283,7 @@ export default function BrowseJobs() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <h2 className="text-base font-bold text-ink-900 truncate">{job.title}</h2>
-                      <Badge tone={job.status === "open" ? "success" : "info"}>{job.status}</Badge>
+                      <Badge tone={job.status === "open" ? "success" : job.status === "draft" ? "neutral" : "info"}>{job.status}</Badge>
                     </div>
                     <p className="mt-1 text-sm text-ink-500 line-clamp-2">{job.description}</p>
                     <div className="mt-2 flex flex-wrap gap-3 text-xs font-semibold text-ink-400">
@@ -434,7 +453,7 @@ export default function BrowseJobs() {
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
 
         {/* ── Desktop filter sidebar ─────────────────────────────────── */}
-        <div className="hidden w-64 shrink-0 lg:block">{FilterSidebar}</div>
+        <div ref={sidebarRef} className="hidden w-64 shrink-0 lg:block max-h-[calc(100vh-120px)] overflow-y-auto">{FilterSidebar}</div>
 
         {/* ── Main content ───────────────────────────────────────────── */}
         <div className="min-w-0 flex-1 space-y-5">

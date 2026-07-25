@@ -15,9 +15,33 @@ export const apiClient = axios.create({
   withCredentials: true,
 });
 
+// ── Remember-me-aware storage ─────────────────────────────────────────────────
+// "Remember me" checked (default)  → localStorage,  survives browser restart.
+// "Remember me" unchecked          → sessionStorage, cleared when the tab/browser closes,
+//                                     but still survives an in-tab refresh.
+// Reads always check both so a session started either way keeps working.
+export const authStorage = {
+  get(key: string): string | null {
+    return localStorage.getItem(key) ?? sessionStorage.getItem(key);
+  },
+  set(key: string, value: string, remember: boolean) {
+    if (remember) {
+      localStorage.setItem(key, value);
+      sessionStorage.removeItem(key);
+    } else {
+      sessionStorage.setItem(key, value);
+      localStorage.removeItem(key);
+    }
+  },
+  remove(key: string) {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  },
+};
+
 // Attach JWT access token to every request.
 apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem("nexora_access_token");
+  const token = authStorage.get("nexora_access_token");
   if (token && config.headers) {
     config.headers.Authorization = `Bearer ${token}`;
   }

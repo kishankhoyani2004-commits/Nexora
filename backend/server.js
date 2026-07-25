@@ -1,12 +1,9 @@
+import "./env.js";
 import http from "http";
 import { Server } from "socket.io";
 import app from "./app.js";
 import connectDB from "./config/db.js";
 import { initChatSocket } from "./sockets/chatSocket.js";
-import dotenv from "dotenv";
-
-// Load Environment Variables
-dotenv.config();
 
 // Connect to MongoDB
 connectDB();
@@ -22,6 +19,11 @@ const io = new Server(server, {
     credentials: true,
   },
 });
+
+// Expose io to REST controllers (e.g. the /workspaces/:id/messages fallback
+// path) so a message sent over plain HTTP still broadcasts live to anyone
+// connected via the socket.
+app.set("io", io);
 
 // Attach sockets chat engine listener
 initChatSocket(io);

@@ -26,7 +26,7 @@ const workspaceTaskSchema = new mongoose.Schema(
     },
     column: {
       type: String,
-      enum: ["todo", "in_progress", "review"],
+      enum: ["todo", "in_progress", "review", "completed"],
       default: "todo",
     },
     commentsCount: {

@@ -1,6 +1,10 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { LoginModal } from "@/components/auth/LoginModal";
+import { WelcomePopup } from "@/components/landing/WelcomePopup";
+import { shouldShowWelcomePopup } from "@/components/landing/welcomePopupStorage";
+import { ROUTES } from "@/constants/routes";
 import {
   ArrowRight,
   ShieldCheck,
@@ -140,29 +144,64 @@ const TESTIMONIALS = [
 ];
 
 export default function Landing() {
+  const navigate = useNavigate();
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [modalTab, setModalTab] = useState<"signin" | "signup">("signin");
-  const { isAuthenticated } = useAuth();
+  const [modalDefaultRole, setModalDefaultRole] = useState<"client" | "freelancer">("freelancer");
+  const [showWelcomePopup, setShowWelcomePopup] = useState(false);
+  const { isAuthenticated, isLoading, user } = useAuth();
 
-  const openModal = (tab: "signin" | "signup" = "signin") => {
+  const openModal = (tab: "signin" | "signup" = "signin", role: "client" | "freelancer" = "freelancer") => {
     setModalTab(tab);
+    setModalDefaultRole(role);
     setShowLoginModal(true);
   };
 
+  // Show the welcome popup for first-time guests on this page load — replaces
+  // the previous behavior of auto-opening the login modal directly. The
+  // popup's own buttons still route into the exact same, untouched
+  // login/signup modal below.
   useEffect(() => {
-    // Only auto-show the modal for visitors who are not logged in
-    if (!isAuthenticated) {
-      setShowLoginModal(true);
+    if (isLoading || isAuthenticated) return;
+    if (shouldShowWelcomePopup()) setShowWelcomePopup(true);
+  }, [isAuthenticated, isLoading]);
+
+  const handleHireTalent = () => {
+    if (isAuthenticated && user?.role === "client") {
+      // Already a client, go to client dashboard
+      navigate(ROUTES.CLIENT_DASHBOARD);
+    } else if (isAuthenticated && user?.role === "freelancer") {
+      // Freelancer trying to hire - show signup with client role to create/enable client profile
+      openModal("signup", "client");
+    } else {
+      // Not authenticated - show signup/login with client role pre-selected
+      openModal("signup", "client");
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  };
+
+  const handleBecomeFreelancer = () => {
+    if (isAuthenticated && user?.role === "freelancer") {
+      // Already a freelancer, go to freelancer dashboard
+      navigate(ROUTES.FREELANCER_DASHBOARD);
+    } else if (isAuthenticated && user?.role === "client") {
+      // Client trying to freelance - show signup with freelancer role to create/enable freelancer profile
+      openModal("signup", "freelancer");
+    } else {
+      // Not authenticated - show signup/login with freelancer role pre-selected
+      openModal("signup", "freelancer");
+    }
+  };
+
+  // Modal auto-opens on page load for unauthenticated users
+  // Can also be opened by clicking Hire Talent, Become a Freelancer, or Login button
 
   return (
     <div className="min-h-screen bg-surface-app">
       <PublicNavbar onLoginClick={() => openModal("signin")} />
 
       {/* HERO */}
-      <section className="mx-auto max-w-7xl px-6 pb-16 pt-16 lg:pt-24">
+      <section id="hero" className="mx-auto max-w-7xl px-6 pb-16 pt-16 lg:pt-24">
         <div className="grid items-center gap-12 lg:grid-cols-2">
           <div>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-100 px-3 py-1.5 text-xs font-bold text-brand-700">
@@ -182,11 +221,11 @@ export default function Landing() {
               <Button
                 size="lg"
                 icon={<ArrowRight className="h-4 w-4" />}
-                onClick={() => openModal("signup")}
+                onClick={handleHireTalent}
               >
                 Hire Talent
               </Button>
-              <Button size="lg" variant="outline" onClick={() => openModal("signup")}>
+              <Button size="lg" variant="outline" onClick={handleBecomeFreelancer}>
                 Become a Freelancer
               </Button>
             </div>
@@ -334,7 +373,7 @@ export default function Landing() {
       </section>
 
       {/* FEATURED TALENT */}
-      <section className="mx-auto max-w-7xl px-6 py-16">
+      <section id="talent" className="mx-auto max-w-7xl px-6 py-16">
         <div className="mb-8 flex items-end justify-between">
           <h2 className="text-3xl font-extrabold text-ink-900">Featured Premium Talent</h2>
             <button className="text-sm font-semibold text-brand-600 hover:underline">
@@ -478,7 +517,7 @@ export default function Landing() {
 
       {/* CTA */}
       <section className="mx-auto max-w-7xl px-6 pb-16">
-        <div className="rounded-3xl bg-gradient-to-br from-brand-500 to-brand-secondary px-10 py-14 text-center text-white">
+        <div className="rounded-3xl bg-gradient-to-br from-brand-500 to-brand-secondary px-10 py-14 text-center text-white shadow-2xl">
           <h2 className="text-3xl font-extrabold sm:text-4xl">Ready to build the future?</h2>
           <p className="mx-auto mt-3 max-w-xl text-white/80">
             Join thousands of businesses hiring world-class freelancers through Nexora's AI platform.
@@ -487,17 +526,41 @@ export default function Landing() {
             <Button
               size="lg"
               variant="secondary"
-              className="bg-white text-brand-700 hover:bg-white/90"
-              onClick={() => openModal("signup")}
+              className="bg-white text-brand-700 hover:bg-white/90 font-bold"
+              onClick={() => openModal("signup", "client")}
             >
-              Get Started
+              Hire Talent
+            </Button>
+            <Button
+              size="lg"
+              className="border-2 border-white bg-transparent text-white hover:bg-white/10 font-bold"
+              onClick={() => openModal("signup", "freelancer")}
+            >
+              Find Work
             </Button>
           </div>
         </div>
       </section>
 
       <Footer />
-      <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} defaultTab={modalTab} />
+      {/* LoginModal seeds its internal tab/role from these props via useState,
+          which only reads them on mount — the key remounts it when the intent
+          changes so "Sign Up" requests don't reopen on the "Sign In" tab. */}
+      <LoginModal
+        key={`${modalTab}-${modalDefaultRole}`}
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        defaultTab={modalTab}
+        defaultRole={modalDefaultRole}
+      />
+      <WelcomePopup
+        isOpen={showWelcomePopup}
+        onClose={() => setShowWelcomePopup(false)}
+        onSelectClient={() => { setShowWelcomePopup(false); openModal("signup", "client"); }}
+        onSelectFreelancer={() => { setShowWelcomePopup(false); openModal("signup", "freelancer"); }}
+        onLogin={() => { setShowWelcomePopup(false); openModal("signin"); }}
+        onCreateAccount={() => { setShowWelcomePopup(false); openModal("signup"); }}
+      />
     </div>
   );
 }

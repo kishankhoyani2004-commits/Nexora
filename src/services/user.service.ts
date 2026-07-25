@@ -9,4 +9,8 @@ export const userService = {
     apiClient.post<ApiResponse<{ avatarUrl: string }>>(`/users/${id}/avatar`, formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    apiClient.post<ApiResponse<null>>("/auth/change-password", { currentPassword, newPassword }),
+  deleteAccount: (password?: string) =>
+    apiClient.delete<ApiResponse<null>>("/auth/delete-account", { data: { password } }),
 };

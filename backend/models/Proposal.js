@@ -31,6 +31,16 @@ const proposalSchema = new mongoose.Schema(
         amount: { type: Number, required: true, min: 0 },
       },
     ],
+    attachments: {
+      type: [
+        {
+          filename: { type: String },
+          url: { type: String },
+          mimetype: { type: String },
+        },
+      ],
+      default: [],
+    },
     status: {
       type: String,
       enum: ["draft", "submitted", "shortlisted", "accepted", "rejected", "withdrawn"],

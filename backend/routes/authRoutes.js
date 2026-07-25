@@ -14,6 +14,8 @@ import {
   firebaseLogin,
   checkEmail,
   assignRole,
+  changePassword,
+  deleteAccount,
 } from "../controllers/authController.js";
 import {
   validate,
@@ -36,6 +38,8 @@ router.post("/logout", logout);
 router.get("/me", protect, getMe);
 router.post("/check-email", checkEmail);
 router.patch("/assign-role", protect, assignRole);
+router.post("/change-password", protect, changePassword);
+router.delete("/delete-account", protect, deleteAccount);
 
 // Firebase / OAuth (Google + GitHub via Firebase SDK on the frontend)
 router.post("/firebase-register", firebaseRegister);

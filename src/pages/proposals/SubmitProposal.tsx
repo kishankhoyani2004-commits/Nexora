@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Sparkles,
@@ -11,17 +11,21 @@ import {
   Plus,
   Trash2,
   Loader2,
+  UploadCloud,
+  Paperclip,
+  X,
+  Wand2,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/Button";
 import { FREELANCER_NAV } from "@/constants/nav";
-import type { Milestone } from "@/types";
+import type { Milestone, JobAttachment } from "@/types";
 import { useNotification } from "@/context/NotificationContext";
 import { ROUTES } from "@/constants/routes";
 import { useQuery } from "@tanstack/react-query";
 import { jobService } from "@/services/job.service";
 import { proposalService } from "@/services/proposal.service";
-import { apiClient } from "@/lib/axios";
+import { aiService } from "@/services/ai.service";
 
 export default function SubmitProposal() {
   const { id } = useParams();
@@ -30,9 +34,17 @@ export default function SubmitProposal() {
 
   const [description, setDescription] = useState("");
   const [bidAmount, setBidAmount] = useState(625);
+  const [deliveryDays, setDeliveryDays] = useState(21);
   const [milestones, setMilestones] = useState<Milestone[]>([{ id: "m1", name: "", amount: 0 }]);
+  const [attachments, setAttachments] = useState<JobAttachment[]>([]);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [generating, setGenerating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [estimatingBid, setEstimatingBid] = useState(false);
+  const [bidSuggestion, setBidSuggestion] = useState<{ suggestedBid: number; reasoning: string } | null>(null);
+  const [estimatingDelivery, setEstimatingDelivery] = useState(false);
+  const [deliverySuggestion, setDeliverySuggestion] = useState<{ estimatedDelivery: string; reasoning: string } | null>(null);
 
   const serviceFee = Math.round(bidAmount * 0.05);
   const youReceive = bidAmount - serviceFee;
@@ -49,22 +61,63 @@ export default function SubmitProposal() {
 
   const job = jobResponse?.data;
 
-  // Real Gemini AI proposal generation
+  // Real Gemini AI proposal generation — job- and profile-aware. Generates a
+  // fresh cover letter when the draft is empty, otherwise improves the
+  // freelancer's existing draft instead of overwriting their work blindly.
   const handleAiGenerate = async () => {
-    if (!job) return;
+    if (!id) return;
     setGenerating(true);
     try {
-      const res = await apiClient.post<{ success: boolean; proposal: string }>("/ai/proposal", {
-        jobTitle: job.title,
-        jobDescription: job.description,
-      });
-      setDescription(res.data.proposal);
-      notify("AI proposal draft generated successfully!", "success");
+      const res = description.trim()
+        ? await aiService.improveProposalText(description)
+        : await aiService.generateProposalForJob(id);
+      setDescription(res.data.data.content);
+      notify(description.trim() ? "Proposal improved by AI!" : "AI proposal draft generated successfully!", "success");
     } catch (err: any) {
       notify("Failed to generate AI proposal draft", "error");
     } finally {
       setGenerating(false);
     }
+  };
+
+  // Job budget/duration are stored in INR on the backend; this page's pricing
+  // calculator works in USD (see the *80 conversion on submit below), so AI
+  // suggestions are converted back to USD to stay consistent with the UI.
+  const handleEstimateBid = async () => {
+    if (!id) return;
+    setEstimatingBid(true);
+    try {
+      const res = await aiService.estimateBidAmount(id);
+      setBidSuggestion(res.data.data);
+    } catch {
+      notify("Failed to fetch AI bid estimate.", "error");
+    } finally {
+      setEstimatingBid(false);
+    }
+  };
+
+  const handleEstimateDelivery = async () => {
+    if (!id) return;
+    setEstimatingDelivery(true);
+    try {
+      const res = await aiService.estimateProposalDeliveryTime(id);
+      setDeliverySuggestion(res.data.data);
+    } catch {
+      notify("Failed to fetch AI delivery estimate.", "error");
+    } finally {
+      setEstimatingDelivery(false);
+    }
+  };
+
+  // Best-effort parse of a free-form estimate like "2 weeks" into a day count.
+  const parseDeliveryDays = (text: string): number | null => {
+    const match = text.match(/(\d+)\s*(day|week|month)/i);
+    if (!match) return null;
+    const n = parseInt(match[1], 10);
+    const unit = match[2].toLowerCase();
+    if (unit.startsWith("week")) return n * 7;
+    if (unit.startsWith("month")) return n * 30;
+    return n;
   };
 
   const addMilestone = () =>
@@ -79,24 +132,52 @@ export default function SubmitProposal() {
     setMilestones(milestones.map((m) => (m.id === id ? { ...m, amount } : m)));
   };
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploadingFile(true);
+    try {
+      for (const file of Array.from(files)) {
+        const res = await proposalService.uploadAttachment(file);
+        setAttachments((prev) => [...prev, res.data.data]);
+      }
+      notify("File uploaded successfully.", "success");
+    } catch (err: any) {
+      notify(err.response?.data?.message || "Failed to upload file.", "error");
+    } finally {
+      setUploadingFile(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const removeAttachment = (url: string) =>
+    setAttachments((prev) => prev.filter((a) => a.url !== url));
+
   const handleSubmit = async () => {
-    if (!description) {
-      notify("Please provide a cover letter description", "error");
+    if (!description.trim()) {
+      notify("Please write a cover letter before submitting.", "error");
+      return;
+    }
+    if (!deliveryDays || deliveryDays < 1) {
+      notify("Please enter a valid delivery time.", "error");
       return;
     }
     setSubmitting(true);
     try {
       await proposalService.submit(id!, {
-        description,
-        bidAmount: bidAmount * 80,
-        estimatedDelivery: "21 days",
-        milestones: milestones.map((m) => ({ name: m.name, amount: m.amount * 80 })),
+        description,          // backend stores as description
+        coverLetter: description, // and also as coverLetter for consistency
+        bidAmount:   bidAmount * 80,  // convert USD → INR
+        estimatedDelivery: `${deliveryDays} day${deliveryDays === 1 ? "" : "s"}`,
+        milestones: milestones
+          .filter((m) => m.name.trim())
+          .map((m) => ({ name: m.name, amount: m.amount * 80 })),
+        attachments,
       });
       notify("Proposal submitted successfully!", "success");
       navigate(ROUTES.PROPOSALS);
     } catch (err: any) {
-      const errMsg = err.response?.data?.message || err.message || "Failed to submit proposal";
-      notify(errMsg, "error");
+      notify(err.response?.data?.message || err.message || "Failed to submit proposal.", "error");
     } finally {
       setSubmitting(false);
     }
@@ -201,6 +282,48 @@ export default function SubmitProposal() {
                 ))}
               </div>
             </div>
+
+            {/* Attachments */}
+            <div className="rounded-2xl border border-surface-border bg-surface-card p-6 shadow-card">
+              <p className="mb-4 text-xs font-bold uppercase tracking-wide text-ink-400">Attachments (optional)</p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                onChange={handleFileSelect}
+                className="hidden"
+                id="proposal-attachments-input"
+              />
+              <label
+                htmlFor="proposal-attachments-input"
+                className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-surface-border py-8 text-center cursor-pointer hover:border-brand-400 transition-colors"
+              >
+                {uploadingFile ? (
+                  <Loader2 className="mb-2 h-7 w-7 animate-spin text-brand-500" />
+                ) : (
+                  <UploadCloud className="mb-2 h-7 w-7 text-brand-500" />
+                )}
+                <p className="text-sm font-semibold text-ink-700">
+                  {uploadingFile ? "Uploading…" : "Click or drag files to upload"}
+                </p>
+                <p className="text-xs text-ink-400 mt-0.5">PDF, DOC, PNG, JPG (Max 10MB each)</p>
+              </label>
+
+              {attachments.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  {attachments.map((a) => (
+                    <div key={a.url} className="flex items-center gap-2 rounded-xl border border-surface-border bg-surface-muted px-3 py-2">
+                      <Paperclip className="h-4 w-4 shrink-0 text-brand-600" />
+                      <span className="flex-1 truncate text-sm text-ink-700">{a.filename}</span>
+                      <button onClick={() => removeAttachment(a.url)} aria-label={`Remove ${a.filename}`}
+                        className="text-ink-400 hover:text-red-500">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="space-y-5">
@@ -213,7 +336,17 @@ export default function SubmitProposal() {
               {/* SINGLE USD CURRENCY INPUT */}
               <div className="space-y-4 rounded-2xl bg-surface-muted/50 border border-surface-border p-4">
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-wider text-ink-400 block mb-1.5">PROPOSAL BUDGET (USD $)</label>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-ink-400">PROPOSAL BUDGET (USD $)</label>
+                    <button
+                      onClick={handleEstimateBid}
+                      disabled={estimatingBid}
+                      className="flex items-center gap-1 text-[10px] font-bold text-brand-600 hover:underline disabled:opacity-50"
+                    >
+                      {estimatingBid ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+                      AI Estimate
+                    </button>
+                  </div>
                   <div className="flex items-center rounded-xl border border-surface-border bg-surface-card px-3 focus-within:border-brand-500">
                     <span className="text-sm font-bold text-ink-900">$</span>
                     <input
@@ -223,6 +356,20 @@ export default function SubmitProposal() {
                       className="h-11 w-full pl-1.5 text-sm font-bold text-ink-900 bg-surface-card outline-none"
                     />
                   </div>
+                  {bidSuggestion && (
+                    <div className="mt-2 rounded-xl border border-brand-200 bg-brand-50 p-2.5 text-xs text-ink-700">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-brand-700">${Math.round(bidSuggestion.suggestedBid / 80)}</span>
+                        <button
+                          onClick={() => { setBidAmount(Math.round(bidSuggestion.suggestedBid / 80)); setBidSuggestion(null); }}
+                          className="font-bold text-brand-600 hover:underline"
+                        >
+                          Apply
+                        </button>
+                      </div>
+                      <p className="mt-1 text-ink-500">{bidSuggestion.reasoning}</p>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -242,6 +389,47 @@ export default function SubmitProposal() {
                   className="w-full h-2 rounded-lg bg-surface-muted appearance-none cursor-pointer accent-brand-600 focus:outline-none"
                 />
                 <p className="text-center text-[10px] text-brand-600 font-bold">Drag to quickly adjust budget</p>
+              </div>
+
+              {/* DELIVERY TIME */}
+              <div>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <label className="text-[10px] font-black uppercase tracking-wider text-ink-400">Delivery Time (days)</label>
+                  <button
+                    onClick={handleEstimateDelivery}
+                    disabled={estimatingDelivery}
+                    className="flex items-center gap-1 text-[10px] font-bold text-brand-600 hover:underline disabled:opacity-50"
+                  >
+                    {estimatingDelivery ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+                    AI Estimate
+                  </button>
+                </div>
+                <div className="flex items-center rounded-xl border border-surface-border bg-surface-card px-3 focus-within:border-brand-500">
+                  <input
+                    type="number"
+                    min={1}
+                    value={deliveryDays}
+                    onChange={(e) => setDeliveryDays(parseInt(e.target.value) || 0)}
+                    className="h-11 w-full text-sm font-bold text-ink-900 bg-surface-card outline-none"
+                  />
+                  <span className="text-xs font-semibold text-ink-400 shrink-0">days</span>
+                </div>
+                {deliverySuggestion && (
+                  <div className="mt-2 rounded-xl border border-brand-200 bg-brand-50 p-2.5 text-xs text-ink-700">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-brand-700">{deliverySuggestion.estimatedDelivery}</span>
+                      {parseDeliveryDays(deliverySuggestion.estimatedDelivery) && (
+                        <button
+                          onClick={() => { setDeliveryDays(parseDeliveryDays(deliverySuggestion.estimatedDelivery)!); setDeliverySuggestion(null); }}
+                          className="font-bold text-brand-600 hover:underline"
+                        >
+                          Apply
+                        </button>
+                      )}
+                    </div>
+                    <p className="mt-1 text-ink-500">{deliverySuggestion.reasoning}</p>
+                  </div>
+                )}
               </div>
 
               {/* BREAKDOWN SHEET */}

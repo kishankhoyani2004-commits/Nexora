@@ -5,7 +5,6 @@ import {
   GoogleAuthProvider,
   GithubAuthProvider,
   signInWithPopup,
-  signInWithRedirect,
   getRedirectResult,
   fetchSignInMethodsForEmail,
   linkWithCredential,
@@ -16,32 +15,41 @@ import { upsertFirestoreUser } from "@/firebase/firestore.service";
 
 // ── Internal: sync Firebase user → MongoDB backend → Firestore ───────────────
 
-async function syncWithBackend(firebaseUser: {
-  uid: string;
-  email: string | null;
-  displayName: string | null;
-  photoURL: string | null;
-}) {
+async function syncWithBackend(
+  firebaseUser: {
+    uid:         string;
+    email:       string | null;
+    displayName: string | null;
+    photoURL:    string | null;
+  },
+  /** Only pass a role when registering a brand-new user from the signup form. */
+  roleHint?: string
+) {
   const response = await apiClient.post("/auth/firebase-login", {
-    uid: firebaseUser.uid,
-    email: firebaseUser.email,
+    uid:      firebaseUser.uid,
+    email:    firebaseUser.email,
     fullName: firebaseUser.displayName || "User",
-    photoURL: firebaseUser.photoURL || "",
+    photoURL: firebaseUser.photoURL    || "",
+    // Only sent when we know the intended role (new registration via Google).
+    // Backend will ignore this for existing users.
+    ...(roleHint ? { role: roleHint } : {}),
   });
 
   const data = response.data; // { success, token, refreshToken, user }
 
-  // Mirror the user to Firestore so details are always persisted
+  // Mirror the user to Firestore so details are always persisted.
+  // Fire-and-forget — MongoDB is the source of truth, so login/register
+  // must never wait on (or fail because of) this secondary cache write.
   if (data.user) {
-    await upsertFirestoreUser(firebaseUser.uid, {
-      mongoId: data.user.id || data.user._id,
+    upsertFirestoreUser(firebaseUser.uid, {
+      mongoId:  data.user.id || data.user._id,
       fullName: data.user.fullName,
-      email: data.user.email,
-      role: data.user.role,
-      avatar: data.user.avatar || firebaseUser.photoURL || "",
+      email:    data.user.email,
+      role:     data.user.role,
+      avatar:   data.user.avatar || firebaseUser.photoURL || "",
       provider: data.user.provider || "firebase",
       verified: true,
-    });
+    }).catch(() => {});
   }
 
   return data;
@@ -54,62 +62,89 @@ export const registerUser = async ({
   email,
   password,
   role,
+  location,
 }: {
   fullName: string;
-  email: string;
+  email:    string;
   password: string;
-  role: string;
+  role:     string;
+  location?: string;
 }) => {
+  // Primary: register directly against the native MongoDB/bcrypt/JWT backend.
+  // This is the same order Login already uses (native first, Firebase second),
+  // so an ordinary email/password account's credential check always lives in
+  // MongoDB and never depends on Firebase being reachable/configured.
   try {
-    // 1. Create Firebase Auth user
-    const credential = await createUserWithEmailAndPassword(auth, email, password);
-
-    // 2. Set displayName in Firebase so photoURL / displayName are available
-    await updateProfile(credential.user, { displayName: fullName });
-
-    // 3. Sync to MongoDB backend
-    const response = await apiClient.post("/auth/firebase-register", {
-      uid: credential.user.uid,
-      email: credential.user.email,
+    const response = await apiClient.post("/auth/register", {
       fullName,
+      email,
+      password,
       role,
+      location: location || "",
     });
-
-    const data = response.data;
-
-    // 4. Persist to Firestore
-    if (data.user) {
-      await upsertFirestoreUser(credential.user.uid, {
-        mongoId: data.user.id || data.user._id,
-        fullName,
-        email: credential.user.email || email,
-        role,
-        avatar: "",
-        provider: "firebase",
-        verified: true,
-      });
+    return response.data;
+  } catch (backendError: any) {
+    // A duplicate-email rejection is final — MongoDB is the single source of
+    // truth for account existence, so this must never fall through to the
+    // Firebase branch below (that would silently create an orphaned Firebase
+    // Auth user with no matching Mongo record once firebase-register also
+    // rejects the same duplicate email).
+    if (backendError.response?.data?.message === "Email already registered.") {
+      throw new Error(backendError.response.data.message);
     }
 
-    return data;
-  } catch (firebaseError: any) {
-    // Firebase project not configured or email-already-in-use fallback
-    console.warn("Firebase register failed, falling back to native backend:", firebaseError.code);
+    // Native registration failed for some other reason (e.g. backend
+    // unreachable) — fall back to Firebase so the user isn't blocked.
+    console.warn("Native register failed, falling back to Firebase:", backendError.message);
     try {
-      const response = await apiClient.post("/auth/register", {
+      const credential = await createUserWithEmailAndPassword(auth, email, password);
+      await updateProfile(credential.user, { displayName: fullName });
+
+      const response = await apiClient.post("/auth/firebase-register", {
+        uid:      credential.user.uid,
+        email:    credential.user.email,
         fullName,
-        email,
-        password,
         role,
+        location: location || "",
       });
-      return response.data;
-    } catch (backendError: any) {
+
+      const data = response.data;
+
+      // Fire-and-forget — a broken/misconfigured Firestore project must never
+      // block account creation, since MongoDB is already the source of truth.
+      if (data.user) {
+        upsertFirestoreUser(credential.user.uid, {
+          mongoId:  data.user.id || data.user._id,
+          fullName,
+          email:    credential.user.email || email,
+          role,
+          avatar:   "",
+          provider: "firebase",
+          verified: true,
+        }).catch(() => {});
+      }
+
+      return data;
+    } catch (firebaseError: any) {
       throw new Error(
         backendError.response?.data?.message ||
-          backendError.message ||
+          firebaseError.message ||
           "Registration failed."
       );
     }
   }
+};
+
+// ── Email verification (post-registration OTP gate) ───────────────────────────
+
+export const verifyEmailCode = async (email: string, code: string) => {
+  const response = await apiClient.post("/auth/verify-email", { email, code });
+  return response.data; // { success, token, refreshToken, user }
+};
+
+export const resendVerificationCode = async (email: string) => {
+  const response = await apiClient.post("/auth/resend-code", { email });
+  return response.data; // { success, message }
 };
 
 // ── Login (email + password) ──────────────────────────────────────────────────
@@ -118,42 +153,56 @@ export const loginUser = async ({
   email,
   password,
 }: {
-  email: string;
+  email:    string;
   password: string;
 }) => {
+  // Strategy: try native backend first (preserves role exactly as stored in MongoDB).
+  // The native endpoint returns the *same* 400 for "wrong password on a local
+  // account" and "this account was registered via Firebase and has no local
+  // password" — those two cases are indistinguishable from the status code
+  // alone, so a 400 must always fall through to the Firebase-login attempt.
+  // Only a confirmed 403 (unverified local account) is a hard, final failure.
   try {
-    const credential = await signInWithEmailAndPassword(auth, email, password);
+    const response = await apiClient.post("/auth/login", { email, password });
+    const data = response.data; // { success, token, refreshToken, user }
 
-    const response = await apiClient.post("/auth/firebase-login", {
-      uid: credential.user.uid,
-      email: credential.user.email,
-    });
-
-    const data = response.data;
-
-    // Keep Firestore in sync on every login (role / avatar may have changed)
-    if (data.user) {
-      await upsertFirestoreUser(credential.user.uid, {
-        mongoId: data.user.id || data.user._id,
+    // Keep Firestore in sync if the user has a Firebase UID
+    if (data.user?.firebaseUid) {
+      upsertFirestoreUser(data.user.firebaseUid, {
+        mongoId:  data.user.id || data.user._id,
         fullName: data.user.fullName,
-        email: data.user.email,
-        role: data.user.role,
-        avatar: data.user.avatar || "",
-        provider: "firebase",
+        email:    data.user.email,
+        role:     data.user.role,       // ← preserve stored role
+        avatar:   data.user.avatar || "",
+        provider: data.user.provider || "local",
         verified: true,
-      });
+      }).catch(() => {}); // non-blocking
     }
 
     return data;
-  } catch (firebaseError: any) {
-    console.warn("Firebase login failed, falling back to native backend:", firebaseError.code);
-    try {
-      const response = await apiClient.post("/auth/login", { email, password });
-      return response.data;
-    } catch (backendError: any) {
+  } catch (nativeError: any) {
+    const status = nativeError.response?.status;
+    if (status === 403) {
       throw new Error(
-        backendError.response?.data?.message ||
-          backendError.message ||
+        nativeError.response?.data?.message || "Invalid email or password."
+      );
+    }
+
+    // 400 (credential or provider mismatch) / network error — try Firebase path as fallback
+    console.warn("Native login failed, trying Firebase fallback:", nativeError.message);
+    try {
+      const credential = await signInWithEmailAndPassword(auth, email, password);
+      const response   = await apiClient.post("/auth/firebase-login", {
+        uid:   credential.user.uid,
+        email: credential.user.email,
+        // Do NOT pass a role — backend must use the existing stored role
+      });
+      return response.data;
+    } catch (fallbackError: any) {
+      throw new Error(
+        nativeError.response?.data?.message ||
+          fallbackError.response?.data?.message ||
+          fallbackError.message ||
           "Invalid email or password."
       );
     }
@@ -165,101 +214,28 @@ export const loginUser = async ({
 export const googleLogin = async () => {
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: "select_account" });
-
   const result = await signInWithPopup(auth, provider);
+  // No roleHint — backend preserves role for existing users,
+  // and new Google sign-ups default to freelancer unless changed in UI.
   return syncWithBackend(result.user);
 };
 
-// ── GitHub (popup — full error handling) ─────────────────────────────────────
-//
-// Why GitHub can fail:
-//   1. auth/account-exists-with-different-credential
-//      → same email already registered via Google; we link the accounts silently.
-//   2. auth/popup-blocked
-//      → browser blocked the popup; fall back to signInWithRedirect().
-//   3. auth/popup-closed-by-user
-//      → user dismissed; treat as a no-op (return null).
-//
-// NOTE: For GitHub OAuth to work you MUST:
-//   1. Go to console.firebase.google.com → Authentication → Sign-in method → GitHub → Enable
-//   2. Register a GitHub OAuth App at github.com/settings/developers
-//      Homepage URL:      http://localhost:5173
-//      Callback URL:      (copy from Firebase GitHub provider settings)
-//   3. Paste the GitHub Client ID + Secret into the Firebase GitHub provider settings.
+// ── OAuth account linking (Settings → Connected Accounts) ────────────────────
+// Unlike googleLogin() above, these only pop the provider's auth dialog to
+// obtain a real account id — they do not sync/replace the current MongoDB
+// session, since the caller is linking a second provider to an already
+// logged-in account, not logging in as someone else.
 
-export const githubLogin = async (): Promise<any> => {
+export const connectGoogleAccount = async () => {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+  const result = await signInWithPopup(auth, provider);
+  return { uid: result.user.uid, email: result.user.email };
+};
+
+export const connectGithubAccount = async () => {
   const provider = new GithubAuthProvider();
-  provider.addScope("user:email");
-
-  try {
-    const result = await signInWithPopup(auth, provider);
-    return syncWithBackend(result.user);
-  } catch (err: any) {
-    // ── Case 1: email conflict ────────────────────────────────────────────────
-    if (err.code === "auth/account-exists-with-different-credential") {
-      const email = err.customData?.email as string;
-      if (!email) {
-        throw new Error("Could not retrieve email from GitHub. Please try again.");
-      }
-
-      const methods = await fetchSignInMethodsForEmail(auth, email);
-
-      if (methods.includes("google.com")) {
-        // Re-auth with Google then link GitHub credential to same account
-        const googleProvider = new GoogleAuthProvider();
-        googleProvider.setCustomParameters({ login_hint: email });
-        const googleResult = await signInWithPopup(auth, googleProvider);
-        const githubCredential = GithubAuthProvider.credentialFromError(err);
-        if (githubCredential) {
-          await linkWithCredential(googleResult.user, githubCredential);
-        }
-        return syncWithBackend(googleResult.user);
-      }
-
-      throw new Error(
-        `This email is already registered with ${methods[0] ?? "another provider"}. ` +
-          `Please sign in with that method instead.`
-      );
-    }
-
-    // ── Case 2: popup blocked ─────────────────────────────────────────────────
-    if (
-      err.code === "auth/popup-blocked" ||
-      err.code === "auth/operation-not-supported-in-this-environment"
-    ) {
-      const redirectProvider = new GithubAuthProvider();
-      redirectProvider.addScope("user:email");
-      await signInWithRedirect(auth, redirectProvider);
-      return null; // page navigates away; result handled by getGithubRedirectResult()
-    }
-
-    // ── Case 3: user closed popup ─────────────────────────────────────────────
-    if (
-      err.code === "auth/popup-closed-by-user" ||
-      err.code === "auth/cancelled-popup-request"
-    ) {
-      return null;
-    }
-
-    // ── Anything else ─────────────────────────────────────────────────────────
-    throw new Error(err.message || "GitHub sign-in failed. Please try again.");
-  }
+  const result = await signInWithPopup(auth, provider);
+  return { uid: result.user.uid, email: result.user.email };
 };
 
-// ── Redirect result handler (called once on app mount by AuthContext) ─────────
-
-export const getGithubRedirectResult = async (): Promise<any | null> => {
-  try {
-    const result = await getRedirectResult(auth);
-    if (!result) return null;
-    return syncWithBackend(result.user);
-  } catch (err: any) {
-    if (err.code === "auth/account-exists-with-different-credential") {
-      throw new Error(
-        "This email is already registered with a different sign-in method. " +
-          "Please use that method to log in."
-      );
-    }
-    return null;
-  }
-};

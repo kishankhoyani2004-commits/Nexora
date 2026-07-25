@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate, useParams } from "react-router-dom";
 import {
   MessageSquare,
   Paperclip,
@@ -30,7 +30,12 @@ import {
   Send,
   UploadCloud,
   Eye,
-  RefreshCw
+  RefreshCw,
+  Trash2,
+  Check,
+  CheckCheck,
+  FileText,
+  Image as ImageIcon
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Avatar } from "@/components/ui/Avatar";
@@ -44,24 +49,45 @@ import { workspaceService } from "@/services/workspace.service";
 import { apiClient } from "@/lib/axios";
 import { formatCurrency } from "@/utils/formatters";
 import { useNotification } from "@/context/NotificationContext";
+import { ROUTES } from "@/constants/routes";
+import { connectSocket } from "@/lib/socket";
 import type {
   Contract,
   WorkspaceTask,
   WorkspaceMilestone,
   WorkspaceDeliverable,
   WorkspaceTimeLog,
+  WorkspaceOverview,
+  WorkspaceMessage,
   TaskColumnKey,
   ApiResponse
 } from "@/types";
 import { cn } from "@/utils/cn";
 
-// Define Tab types
-type WorkspaceTab = "Overview" | "Tasks" | "Milestones" | "Deliverables" | "Time Tracking" | "Files" | "Messages" | "AI Assistant";
+// Define Tab types. "Activity" is the internal value for the Project Timeline
+// tab — NOT "Timeline", because the sidebar's "Milestones" shortcut link
+// already overloads `?tab=Timeline` to mean the Milestones tab (see the
+// "Handle sidebar navigation shortcut tabs" effect below); reusing that
+// string here would make this tab unreachable.
+type WorkspaceTab = "Overview" | "Tasks" | "Milestones" | "Deliverables" | "Time Tracking" | "Files" | "Messages" | "Activity" | "AI Assistant";
+
+const TAB_LABELS: Record<WorkspaceTab, string> = {
+  Overview: "Overview",
+  Tasks: "Tasks",
+  Milestones: "Milestones",
+  Deliverables: "Deliverables",
+  "Time Tracking": "Time Tracking",
+  Files: "Files",
+  Messages: "Messages",
+  Activity: "Timeline",
+  "AI Assistant": "AI Assistant",
+};
 
 const COLUMNS: { key: TaskColumnKey; label: string }[] = [
   { key: "todo", label: "To Do" },
   { key: "in_progress", label: "In Progress" },
-  { key: "review", label: "Under Review" },
+  { key: "review", label: "Review" },
+  { key: "completed", label: "Completed" },
 ];
 
 export default function Workspace() {
@@ -71,13 +97,26 @@ export default function Workspace() {
   const queryClient = useQueryClient();
   const { notify } = useNotification();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { projectId: routeProjectId } = useParams<{ projectId?: string }>();
 
-  // Selected project contract ID
-  const projectId = searchParams.get("project") || "";
-  
+  // Selected project contract ID — prefer the /workspace/:projectId route param,
+  // fall back to the legacy ?project= query string used by older deep links.
+  const projectId = routeProjectId || searchParams.get("project") || "";
+
   // Tab parameters (if no project is open, we can toggle Active vs Completed)
   const tabParam = searchParams.get("tab") || "Active";
   const [tab, setTab] = useState<WorkspaceTab>("Overview");
+
+  // Switches tabs while keeping the URL scheme consistent: path param for
+  // project id (when present), query string for everything else.
+  const updateTab = (t: WorkspaceTab) => {
+    setTab(t);
+    if (routeProjectId) {
+      setSearchParams({ tab: t });
+    } else {
+      setSearchParams({ project: projectId, tab: t });
+    }
+  };
 
   // Project List states
   const [searchQuery, setSearchQuery] = useState("");
@@ -89,6 +128,8 @@ export default function Workspace() {
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskLabel, setNewTaskLabel] = useState("");
+  const [newTaskAssignee, setNewTaskAssignee] = useState("");
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
 
   // Milestones states
   const [submittingMilestoneId, setSubmittingMilestoneId] = useState<string | null>(null);
@@ -96,6 +137,35 @@ export default function Workspace() {
   const [submissionUrl, setSubmissionUrl] = useState("");
   const [reviewingMilestoneId, setReviewingMilestoneId] = useState<string | null>(null);
   const [reviewFeedback, setReviewFeedback] = useState("");
+  const [showMilestoneModal, setShowMilestoneModal] = useState(false);
+  const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null);
+  const [milestoneTitle, setMilestoneTitle] = useState("");
+  const [milestoneDescription, setMilestoneDescription] = useState("");
+  const [milestoneBudget, setMilestoneBudget] = useState<number>(0);
+  const [milestoneDueDate, setMilestoneDueDate] = useState("");
+
+  const resetMilestoneForm = () => {
+    setShowMilestoneModal(false);
+    setEditingMilestoneId(null);
+    setMilestoneTitle("");
+    setMilestoneDescription("");
+    setMilestoneBudget(0);
+    setMilestoneDueDate("");
+  };
+
+  const openCreateMilestone = () => {
+    resetMilestoneForm();
+    setShowMilestoneModal(true);
+  };
+
+  const openEditMilestone = (m: WorkspaceMilestone) => {
+    setEditingMilestoneId(m.id);
+    setMilestoneTitle(m.title);
+    setMilestoneDescription(m.description || "");
+    setMilestoneBudget(m.budget);
+    setMilestoneDueDate(m.dueDate ? new Date(m.dueDate).toISOString().slice(0, 10) : "");
+    setShowMilestoneModal(true);
+  };
 
   // Deliverables states
   const [showDeliverableModal, setShowDeliverableModal] = useState(false);
@@ -117,14 +187,23 @@ export default function Workspace() {
   const [manualHours, setManualHours] = useState(2);
   const [manualNotes, setManualNotes] = useState("");
 
-  // Chat message states
+  // Chat message states — messages are held locally (not React Query) since
+  // they're driven by a live socket stream, not a poll/refetch cycle.
   const [newMessage, setNewMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [liveMessages, setLiveMessages] = useState<WorkspaceMessage[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [messageSearch, setMessageSearch] = useState("");
+  const [otherTyping, setOtherTyping] = useState(false);
+  const [otherOnline, setOtherOnline] = useState(false);
+  const [otherLastSeen, setOtherLastSeen] = useState<string | null>(null);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const typingTimeoutRef = useRef<any>(null);
 
   // Sync tab state with query parameter if present
   useEffect(() => {
     const tabQuery = searchParams.get("tab");
-    if (tabQuery && ["Overview", "Tasks", "Milestones", "Deliverables", "Time Tracking", "Files", "Messages", "AI Assistant"].includes(tabQuery)) {
+    if (tabQuery && ["Overview", "Tasks", "Milestones", "Deliverables", "Time Tracking", "Files", "Messages", "Activity", "AI Assistant"].includes(tabQuery)) {
       setTab(tabQuery as WorkspaceTab);
     }
   }, [searchParams]);
@@ -153,6 +232,15 @@ export default function Workspace() {
 
   // Active project selection
   const currentProject = allProjects.find((p: Contract) => p.id === projectId);
+
+  // Chat is 1:1 per project (client + assigned freelancer only) — derive
+  // "me" and "the other party" from whichever role the logged-in user has.
+  const myId = user?.id || (user as any)?._id || "";
+  const otherUser =
+    currentProject && (currentProject.client as any)?.id === myId
+      ? (currentProject.freelancer as any)
+      : (currentProject?.client as any);
+  const otherUserId = otherUser?.id || otherUser?._id || "";
 
   // 2. Fetch Tasks (Board)
   const { data: tasksResponse, isLoading: loadingTasks } = useQuery({
@@ -224,17 +312,134 @@ export default function Workspace() {
     enabled: !!projectId && tab === "Time Tracking",
   });
 
-  // 8. Fetch Workspace Messages
-  const { data: messagesResponse, refetch: refetchMessages } = useQuery({
-    queryKey: ["project-messages", projectId],
+  // 8. Real-time chat: connect Socket.io, join this project's room, load
+  // history over REST, and keep `liveMessages` updated from live events.
+  // (The old code here called `/messages?recipient=` and `POST /messages`,
+  // neither of which is a real endpoint — this replaces that dead code.)
+  useEffect(() => {
+    if (!projectId || tab !== "Messages") return;
+
+    let cancelled = false;
+    const socket = connectSocket();
+
+    setLoadingMessages(true);
+    workspaceService
+      .getMessages(projectId)
+      .then((res) => {
+        if (!cancelled) setLiveMessages(res.data.data);
+      })
+      .catch(() => {
+        if (!cancelled) notify("Failed to load messages.", "error");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingMessages(false);
+      });
+
+    socket.emit("join_workspace", { contractId: projectId }, (ack: { success: boolean; message?: string }) => {
+      if (!cancelled && ack && !ack.success) {
+        notify(ack.message || "Unable to join chat for this workspace.", "error");
+      }
+    });
+
+    // Existing unread messages from the other party become read the moment
+    // this tab is open.
+    socket.emit("mark_read", { contractId: projectId });
+
+    const onReceive = (msg: WorkspaceMessage) => {
+      if (msg.contractId !== projectId) return;
+      setLiveMessages((prev) => [...prev, msg]);
+      if (msg.senderId && msg.senderId !== myId) {
+        socket.emit("mark_read", { contractId: projectId });
+      }
+    };
+    const onTyping = (payload: { contractId: string; userId: string }) => {
+      if (payload.contractId === projectId && payload.userId !== myId) setOtherTyping(true);
+    };
+    const onStopTyping = (payload: { contractId: string; userId: string }) => {
+      if (payload.contractId === projectId && payload.userId !== myId) setOtherTyping(false);
+    };
+    const onPresence = (payload: { userId: string; online: boolean; lastSeen: string | null }) => {
+      if (payload.userId === otherUserId) {
+        setOtherOnline(payload.online);
+        setOtherLastSeen(payload.lastSeen);
+      }
+    };
+    const onReadReceipt = (payload: { contractId: string; readBy: string }) => {
+      if (payload.contractId !== projectId || payload.readBy === myId) return;
+      setLiveMessages((prev) =>
+        prev.map((m) => (m.senderId === myId ? { ...m, read: true } : m))
+      );
+    };
+
+    socket.on("receive_message", onReceive);
+    socket.on("user_typing", onTyping);
+    socket.on("user_stop_typing", onStopTyping);
+    socket.on("presence_update", onPresence);
+    socket.on("read_receipt", onReadReceipt);
+
+    return () => {
+      cancelled = true;
+      socket.off("receive_message", onReceive);
+      socket.off("user_typing", onTyping);
+      socket.off("user_stop_typing", onStopTyping);
+      socket.off("presence_update", onPresence);
+      socket.off("read_receipt", onReadReceipt);
+      setOtherTyping(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, tab]);
+
+  // Search scoped to this project's message history (hits the backend so it
+  // covers messages beyond what's currently loaded in `liveMessages`).
+  const { data: searchResponse, isFetching: searchingMessages } = useQuery({
+    queryKey: ["message-search", projectId, messageSearch],
     queryFn: async () => {
-      const res = await apiClient.get<ApiResponse<any[]>>(`/messages?recipient=${currentProject?.client?._id || currentProject?.freelancer?._id}`);
+      const res = await workspaceService.getMessages(projectId, messageSearch);
       return res.data;
     },
-    enabled: !!projectId && tab === "Messages",
+    enabled: !!projectId && tab === "Messages" && messageSearch.trim().length > 0,
   });
 
-  const projectMessages = messagesResponse?.data || [];
+  const displayedMessages = messageSearch.trim() ? searchResponse?.data || [] : liveMessages;
+
+  // 9. Fetch Workspace Overview (progress, due date, activity, summaries)
+  const { data: overviewResponse, isLoading: loadingOverview, error: overviewError } = useQuery({
+    queryKey: ["workspace-overview", projectId],
+    queryFn: async () => {
+      const res = await workspaceService.getOverview(projectId);
+      return res.data;
+    },
+    enabled: !!projectId && tab === "Overview",
+    retry: false,
+  });
+
+  const overview = overviewResponse?.data as WorkspaceOverview | undefined;
+
+  // 10. Fetch full Project Timeline (complete activity history, latest first)
+  const { data: timelineResponse, isLoading: loadingTimeline } = useQuery({
+    queryKey: ["workspace-timeline", projectId],
+    queryFn: async () => {
+      const res = await workspaceService.getActivity(projectId, 200);
+      return res.data;
+    },
+    enabled: !!projectId && tab === "Activity",
+  });
+
+  const timelineActivity = timelineResponse?.data || [];
+
+  // Only the client and assigned freelancer may open this workspace — if the
+  // backend rejects us (wrong user, or a stale/invalid project id), bounce
+  // back to the workspace list instead of showing a broken page.
+  useEffect(() => {
+    const status = (overviewError as any)?.response?.status;
+    if (status === 403) {
+      notify("You don't have access to this workspace.", "error");
+      navigate(ROUTES.WORKSPACE, { replace: true });
+    } else if (status === 404) {
+      notify("Project not found.", "error");
+      navigate(ROUTES.WORKSPACE, { replace: true });
+    }
+  }, [overviewError, navigate, notify]);
 
   // ─── Active Timer Rehydration & Intervals ──────────────────────────────────
   useEffect(() => {
@@ -264,7 +469,7 @@ export default function Workspace() {
   // Scroll to bottom of chat
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [projectMessages, tab]);
+  }, [displayedMessages, tab]);
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
@@ -287,14 +492,83 @@ export default function Workspace() {
         title: newTaskTitle,
         label: newTaskLabel || "Feature",
         labelColor: newTaskLabel === "Bug" ? "#ef4444" : "#4f46e5",
+        assignee: (newTaskAssignee || undefined) as any,
       });
     },
     onSuccess: () => {
       setNewTaskTitle("");
       setNewTaskLabel("");
+      setNewTaskAssignee("");
       setShowTaskModal(false);
       queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
       notify("New task added to board", "success");
+    },
+  });
+
+  // Reassign an existing task to a different project member (or unassign)
+  const reassignTaskMutation = useMutation({
+    mutationFn: async ({ taskId, assignee }: { taskId: string; assignee: string | null }) => {
+      await workspaceService.updateTask(projectId, taskId, { assignee });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
+      notify("Task assignment updated.", "success");
+    },
+  });
+
+  // Create Milestone
+  const createMilestoneMutation = useMutation({
+    mutationFn: async () => {
+      await workspaceService.createMilestone(projectId, {
+        title: milestoneTitle,
+        description: milestoneDescription,
+        budget: milestoneBudget,
+        dueDate: milestoneDueDate,
+      });
+    },
+    onSuccess: () => {
+      resetMilestoneForm();
+      queryClient.invalidateQueries({ queryKey: ["milestones", projectId] });
+      notify("Milestone created.", "success");
+    },
+  });
+
+  // Edit an existing milestone's details
+  const updateMilestoneMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingMilestoneId) return;
+      await workspaceService.updateMilestone(editingMilestoneId, {
+        title: milestoneTitle,
+        description: milestoneDescription,
+        budget: milestoneBudget,
+        dueDate: milestoneDueDate,
+      });
+    },
+    onSuccess: () => {
+      resetMilestoneForm();
+      queryClient.invalidateQueries({ queryKey: ["milestones", projectId] });
+      notify("Milestone updated.", "success");
+    },
+  });
+
+  // Quick status set: Pending / In Progress / Completed
+  const setMilestoneStatusMutation = useMutation({
+    mutationFn: async ({ milestoneId, status }: { milestoneId: string; status: "pending" | "in_progress" | "completed" }) => {
+      await workspaceService.updateMilestone(milestoneId, { status });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["milestones", projectId] });
+      notify("Milestone status updated.", "success");
+    },
+  });
+
+  const deleteMilestoneMutation = useMutation({
+    mutationFn: async (milestoneId: string) => {
+      await workspaceService.deleteMilestone(milestoneId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["milestones", projectId] });
+      notify("Milestone deleted.", "success");
     },
   });
 
@@ -393,20 +667,53 @@ export default function Workspace() {
     },
   });
 
-  // Post chat message
-  const postMessageMutation = useMutation({
-    mutationFn: async () => {
-      if (!newMessage.trim()) return;
-      await apiClient.post("/messages", {
-        recipientId: currentProject?.client?._id || currentProject?.freelancer?._id,
-        content: newMessage,
-      });
-    },
-    onSuccess: () => {
-      setNewMessage("");
-      refetchMessages();
-    },
-  });
+  // Send chat message — over the socket when connected (real-time delivery
+  // to the other party), falling back to the REST endpoint (which also
+  // broadcasts server-side) if the socket isn't up yet.
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const content = newMessage.trim();
+    if (!content || sendingMessage) return;
+
+    setSendingMessage(true);
+    const socket = connectSocket();
+    if (socket.connected) {
+      socket.emit(
+        "send_message",
+        { contractId: projectId, content },
+        (ack: { success: boolean; message?: string }) => {
+          setSendingMessage(false);
+          if (!ack?.success) {
+            notify(ack?.message || "Failed to send message.", "error");
+          }
+        }
+      );
+    } else {
+      try {
+        const res = await workspaceService.sendMessage(projectId, content);
+        setLiveMessages((prev) => [...prev, res.data.data]);
+      } catch {
+        notify("Failed to send message.", "error");
+      } finally {
+        setSendingMessage(false);
+      }
+    }
+    setNewMessage("");
+    clearTimeout(typingTimeoutRef.current);
+    socket.emit("stop_typing", { contractId: projectId });
+  };
+
+  // Typing indicator — emit "typing" on keystroke, auto "stop_typing" after
+  // a short pause so a dropped connection can't leave it stuck on.
+  const handleMessageInputChange = (value: string) => {
+    setNewMessage(value);
+    const socket = connectSocket();
+    socket.emit("typing", { contractId: projectId });
+    clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit("stop_typing", { contractId: projectId });
+    }, 2000);
+  };
 
   // File Upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -418,10 +725,24 @@ export default function Workspace() {
       await workspaceService.uploadFile(projectId, fd);
       queryClient.invalidateQueries({ queryKey: ["files", projectId] });
       notify(`File ${fileObj.name} uploaded successfully!`, "success");
-    } catch {
-      notify("Cloudinary upload failed, check file extensions.", "error");
+    } catch (err: any) {
+      notify(err?.response?.data?.message || "File upload failed, check file type/size.", "error");
     }
   };
+
+  // File Delete (permission-checked server-side: uploader or admin only)
+  const deleteFileMutation = useMutation({
+    mutationFn: async (fileId: string) => {
+      await workspaceService.deleteFile(projectId, fileId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["files", projectId] });
+      notify("File deleted.", "success");
+    },
+    onError: (err: any) => {
+      notify(err?.response?.data?.message || "Failed to delete file.", "error");
+    },
+  });
 
   // Helper formatting for timer
   const formatTime = (seconds: number) => {
@@ -485,7 +806,7 @@ export default function Workspace() {
                 variant="outline"
                 size="sm"
                 icon={<ArrowLeft className="h-4 w-4" />}
-                onClick={() => setSearchParams({ tab: tabParam })}
+                onClick={() => navigate(`${ROUTES.WORKSPACE}?tab=${tabParam}`)}
               >
                 Back to Workspace
               </Button>
@@ -507,13 +828,10 @@ export default function Workspace() {
 
           {/* Navigation Tabs bar */}
           <div className="flex gap-2 border-b border-surface-border overflow-x-auto pb-px">
-            {(["Overview", "Tasks", "Milestones", "Deliverables", "Time Tracking", "Files", "Messages", "AI Assistant"] as WorkspaceTab[]).map((t) => (
+            {(["Overview", "Tasks", "Milestones", "Deliverables", "Time Tracking", "Files", "Messages", "Activity", "AI Assistant"] as WorkspaceTab[]).map((t) => (
               <button
                 key={t}
-                onClick={() => {
-                  setTab(t);
-                  setSearchParams({ project: projectId, tab: t });
-                }}
+                onClick={() => updateTab(t)}
                 className={cn(
                   "border-b-2 px-4 py-3 text-sm font-semibold transition-colors whitespace-nowrap",
                   tab === t
@@ -521,7 +839,7 @@ export default function Workspace() {
                     : "border-transparent text-ink-500 hover:text-ink-900"
                 )}
               >
-                {t}
+                {TAB_LABELS[t]}
               </button>
             ))}
           </div>
@@ -529,7 +847,7 @@ export default function Workspace() {
           {/* ── TAB 1: OVERVIEW ── */}
           {tab === "Overview" && (
             <div className="grid gap-6 lg:grid-cols-3">
-              
+
               {/* Left Column: Details */}
               <div className="lg:col-span-2 space-y-6">
                 <div className="rounded-3xl border border-surface-border bg-surface-card p-6 shadow-card space-y-4">
@@ -537,7 +855,7 @@ export default function Workspace() {
                   <p className="text-sm text-ink-600 leading-relaxed">
                     Welcome to the workspace for the <strong>{currentProject.title}</strong>. This repository maps visual wireframes, columns layout, deliverable archives, time logged, and messaging pipelines between you and the client team. Use milestones to request payouts and trigger automatic Escrow verification.
                   </p>
-                  
+
                   <div className="grid grid-cols-2 gap-4 pt-4 border-t border-surface-border">
                     <div>
                       <p className="text-xs text-ink-400 font-medium">ESTIMATED BUDGET</p>
@@ -550,6 +868,88 @@ export default function Workspace() {
                       </Badge>
                     </div>
                   </div>
+
+                  {/* Progress bar — share of milestones approved/completed */}
+                  <div className="pt-4 border-t border-surface-border space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-ink-700">Overall Progress</span>
+                      <span className="font-bold text-brand-600">{loadingOverview ? "…" : `${overview?.progress ?? 0}%`}</span>
+                    </div>
+                    <div className="h-2.5 w-full rounded-full bg-surface-muted overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-brand-600 transition-all"
+                        style={{ width: `${overview?.progress ?? 0}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Milestones summary */}
+                <div className="rounded-3xl border border-surface-border bg-surface-card p-6 shadow-card">
+                  <h3 className="font-bold text-ink-900 mb-4">Milestones Summary</h3>
+                  <div className="grid grid-cols-4 gap-3 text-center">
+                    <div className="rounded-2xl bg-surface-muted p-3">
+                      <p className="text-lg font-extrabold text-ink-900">{overview?.milestonesSummary.total ?? 0}</p>
+                      <p className="text-[10px] text-ink-500 font-semibold uppercase mt-1">Total</p>
+                    </div>
+                    <div className="rounded-2xl bg-surface-muted p-3">
+                      <p className="text-lg font-extrabold text-emerald-500">{overview?.milestonesSummary.completed ?? 0}</p>
+                      <p className="text-[10px] text-ink-500 font-semibold uppercase mt-1">Approved</p>
+                    </div>
+                    <div className="rounded-2xl bg-surface-muted p-3">
+                      <p className="text-lg font-extrabold text-brand-600">{overview?.milestonesSummary.inProgress ?? 0}</p>
+                      <p className="text-[10px] text-ink-500 font-semibold uppercase mt-1">In Progress</p>
+                    </div>
+                    <div className="rounded-2xl bg-surface-muted p-3">
+                      <p className="text-lg font-extrabold text-warning">{overview?.milestonesSummary.submitted ?? 0}</p>
+                      <p className="text-[10px] text-ink-500 font-semibold uppercase mt-1">Submitted</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Shared Files & Deliverables summary */}
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="rounded-3xl border border-surface-border bg-surface-card p-6 shadow-card space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-bold text-ink-900 text-sm">Shared Files</h3>
+                      <Paperclip className="h-4 w-4 text-ink-400" />
+                    </div>
+                    <p className="text-2xl font-extrabold text-ink-900">{overview?.filesCount ?? 0}</p>
+                    <Button variant="outline" size="sm" fullWidth onClick={() => updateTab("Files")}>View Files</Button>
+                  </div>
+                  <div className="rounded-3xl border border-surface-border bg-surface-card p-6 shadow-card space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-bold text-ink-900 text-sm">Deliverables</h3>
+                      <Package className="h-4 w-4 text-ink-400" />
+                    </div>
+                    <p className="text-2xl font-extrabold text-ink-900">{overview?.deliverablesCount ?? 0}</p>
+                    <Button variant="outline" size="sm" fullWidth onClick={() => updateTab("Deliverables")}>View Deliverables</Button>
+                  </div>
+                </div>
+
+                {/* Recent Activity */}
+                <div className="rounded-3xl border border-surface-border bg-surface-card p-6 shadow-card space-y-4">
+                  <h3 className="font-bold text-ink-900 flex items-center gap-2"><History className="h-4 w-4 text-ink-400" /> Recent Activity</h3>
+                  {loadingOverview ? (
+                    <div className="flex h-16 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-brand-600" /></div>
+                  ) : !overview?.recentActivity?.length ? (
+                    <p className="text-sm text-ink-500">No activity recorded for this workspace yet.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {overview.recentActivity.map((a) => (
+                        <div key={a.id} className="flex items-start justify-between gap-3 border-b border-surface-border last:border-0 pb-3 last:pb-0">
+                          <div className="flex items-start gap-2">
+                            <span className="mt-1 h-1.5 w-1.5 rounded-full bg-brand-600 shrink-0" />
+                            <div>
+                              <p className="text-xs text-ink-700">{a.message}</p>
+                              <p className="text-[10px] text-ink-400 mt-0.5">{a.actor?.fullName || "System"}</p>
+                            </div>
+                          </div>
+                          <span className="text-[10px] text-ink-400 whitespace-nowrap">{new Date(a.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Project Milestone Roadmap */}
@@ -583,20 +983,31 @@ export default function Workspace() {
                 </div>
               </div>
 
-              {/* Right Column: Client & Status Card */}
+              {/* Right Column: Client, Freelancer & Status Card */}
               <div className="space-y-6">
                 <div className="rounded-3xl border border-surface-border bg-surface-card p-6 shadow-card space-y-5">
-                  <h3 className="font-bold text-ink-900">Client Details</h3>
+                  <h3 className="font-bold text-ink-900">Assigned Client</h3>
                   <div className="flex items-center gap-3">
                     <Avatar src={currentProject.client?.avatar || currentProject.client?.avatarUrl} name={currentProject.client?.fullName || "Client"} size="md" />
                     <div>
                       <p className="font-bold text-ink-900">{currentProject.client?.fullName || "Client"}</p>
-                      <p className="text-xs text-ink-400">Founder & CEO</p>
+                      <p className="text-xs text-ink-400">{currentProject.client?.email}</p>
                     </div>
                   </div>
-                  <Button variant="outline" size="sm" fullWidth onClick={() => setTab("Messages")}>
+                  <Button variant="outline" size="sm" fullWidth onClick={() => updateTab("Messages")}>
                     <MessageSquare className="h-4 w-4 mr-2" /> Message Client
                   </Button>
+                </div>
+
+                <div className="rounded-3xl border border-surface-border bg-surface-card p-6 shadow-card space-y-5">
+                  <h3 className="font-bold text-ink-900">Assigned Freelancer</h3>
+                  <div className="flex items-center gap-3">
+                    <Avatar src={currentProject.freelancer?.avatar || currentProject.freelancer?.avatarUrl} name={currentProject.freelancer?.fullName || "Freelancer"} size="md" />
+                    <div>
+                      <p className="font-bold text-ink-900">{currentProject.freelancer?.fullName || "Freelancer"}</p>
+                      <p className="text-xs text-ink-400">{currentProject.freelancer?.email}</p>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Timeline status info */}
@@ -608,7 +1019,13 @@ export default function Workspace() {
                       <span className="font-semibold">{new Date(currentProject.createdAt).toLocaleDateString()}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Contract Status</span>
+                      <span>Due Date</span>
+                      <span className="font-semibold">
+                        {overview?.dueDate ? new Date(overview.dueDate).toLocaleDateString() : "Not set"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Project Status</span>
                       <Badge tone={currentProject.status === "completed" ? "success" : "brand"}>{currentProject.status.toUpperCase()}</Badge>
                     </div>
                     <div className="flex justify-between">
@@ -618,6 +1035,23 @@ export default function Workspace() {
                       </Badge>
                     </div>
                   </div>
+                </div>
+
+                {/* Quick Actions */}
+                <div className="rounded-3xl border border-surface-border bg-surface-card p-6 shadow-card space-y-3">
+                  <h3 className="font-bold text-ink-900">Quick Actions</h3>
+                  <Button variant="outline" size="sm" fullWidth onClick={() => updateTab("Milestones")}>
+                    <Flag className="h-4 w-4 mr-2" /> Review Milestones
+                  </Button>
+                  <Button variant="outline" size="sm" fullWidth onClick={() => updateTab("Files")}>
+                    <UploadCloud className="h-4 w-4 mr-2" /> Upload File
+                  </Button>
+                  <Button variant="outline" size="sm" fullWidth onClick={() => updateTab("Deliverables")}>
+                    <Package className="h-4 w-4 mr-2" /> Upload Deliverable
+                  </Button>
+                  <Button variant="outline" size="sm" fullWidth onClick={() => updateTab("Time Tracking")}>
+                    <Clock className="h-4 w-4 mr-2" /> Log Time
+                  </Button>
                 </div>
               </div>
             </div>
@@ -639,11 +1073,22 @@ export default function Workspace() {
               {loadingTasks ? (
                 <div className="flex h-32 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-brand-600" /></div>
               ) : (
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                   {COLUMNS.map((col) => {
                     const colTasks = tasks.filter((t) => t.column === col.key);
                     return (
-                      <div key={col.key} className="rounded-3xl border border-surface-border bg-surface-muted/50 p-4 space-y-4 min-h-[350px]">
+                      <div
+                        key={col.key}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (draggingTaskId) {
+                            moveTaskMutation.mutate({ taskId: draggingTaskId, column: col.key });
+                            setDraggingTaskId(null);
+                          }
+                        }}
+                        className="rounded-3xl border border-surface-border bg-surface-muted/50 p-4 space-y-4 min-h-[350px]"
+                      >
                         <div className="flex items-center justify-between">
                           <h3 className="text-sm font-bold text-ink-900">{col.label}</h3>
                           <Badge tone="neutral">{colTasks.length}</Badge>
@@ -656,34 +1101,59 @@ export default function Workspace() {
                             </p>
                           ) : (
                             colTasks.map((task) => (
-                              <div key={task.id} className="rounded-2xl border border-surface-border bg-surface-card p-4 shadow-sm hover:shadow-card transition-shadow space-y-3">
+                              <div
+                                key={task.id}
+                                draggable
+                                onDragStart={() => setDraggingTaskId(task.id)}
+                                onDragEnd={() => setDraggingTaskId(null)}
+                                className={cn(
+                                  "rounded-2xl border border-surface-border bg-surface-card p-4 shadow-sm hover:shadow-card transition-shadow space-y-3 cursor-grab active:cursor-grabbing",
+                                  draggingTaskId === task.id && "opacity-40"
+                                )}
+                              >
                                 <h4 className="text-xs font-bold text-ink-900 leading-snug">{task.title}</h4>
                                 <div className="flex justify-between items-center gap-2">
                                   <span style={{ backgroundColor: task.labelColor + "15", color: task.labelColor }} className="rounded-lg px-2.5 py-0.5 text-[10px] font-bold">
                                     {task.label.toUpperCase()}
                                   </span>
-                                  
-                                  {/* Quick move buttons */}
-                                  <div className="flex gap-1">
-                                    {col.key !== "todo" && (
-                                      <button
-                                        onClick={() => moveTaskMutation.mutate({ taskId: task.id, column: col.key === "review" ? "in_progress" : "todo" })}
-                                        className="rounded bg-surface-muted hover:bg-surface-border p-1 text-[10px] text-ink-500"
-                                        title="Move Back"
-                                      >
-                                        ←
-                                      </button>
-                                    )}
-                                    {col.key !== "review" && (
-                                      <button
-                                        onClick={() => moveTaskMutation.mutate({ taskId: task.id, column: col.key === "todo" ? "in_progress" : "review" })}
-                                        className="rounded bg-surface-muted hover:bg-surface-border p-1 text-[10px] text-ink-500 font-bold"
-                                        title="Move Forward"
-                                      >
-                                        →
-                                      </button>
+                                  <select
+                                    value={col.key}
+                                    onChange={(e) => moveTaskMutation.mutate({ taskId: task.id, column: e.target.value })}
+                                    className="rounded-lg border border-surface-border bg-surface-card px-1.5 py-0.5 text-[10px] text-ink-500 outline-none"
+                                    title="Move to column"
+                                  >
+                                    {COLUMNS.map((c) => (
+                                      <option key={c.key} value={c.key}>{c.label}</option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                {/* Assignee — client and freelancer are the only two project members */}
+                                <div className="flex items-center justify-between gap-2 pt-2 border-t border-surface-border">
+                                  <div className="flex items-center gap-1.5">
+                                    {task.assignee ? (
+                                      <>
+                                        <Avatar src={task.assignee.avatar} name={task.assignee.fullName || "User"} size="sm" />
+                                        <span className="text-[10px] text-ink-500 truncate max-w-[80px]">{task.assignee.fullName}</span>
+                                      </>
+                                    ) : (
+                                      <span className="text-[10px] text-ink-400 italic">Unassigned</span>
                                     )}
                                   </div>
+                                  <select
+                                    value={task.assignee?.id || ""}
+                                    onChange={(e) => reassignTaskMutation.mutate({ taskId: task.id, assignee: e.target.value || null })}
+                                    className="rounded-lg border border-surface-border bg-surface-card px-1.5 py-0.5 text-[10px] text-ink-500 outline-none max-w-[90px]"
+                                    title="Assign to"
+                                  >
+                                    <option value="">Unassigned</option>
+                                    {currentProject?.client && (
+                                      <option value={(currentProject.client as any).id}>{(currentProject.client as any).fullName}</option>
+                                    )}
+                                    {currentProject?.freelancer && (
+                                      <option value={(currentProject.freelancer as any).id}>{(currentProject.freelancer as any).fullName}</option>
+                                    )}
+                                  </select>
                                 </div>
                               </div>
                             ))
@@ -714,6 +1184,22 @@ export default function Workspace() {
                         value={newTaskLabel}
                         onChange={(e) => setNewTaskLabel(e.target.value)}
                       />
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-ink-700 mb-1.5">Assign To</label>
+                        <select
+                          value={newTaskAssignee}
+                          onChange={(e) => setNewTaskAssignee(e.target.value)}
+                          className="w-full h-11 rounded-xl border border-surface-border px-3 text-xs outline-none bg-surface-card text-ink-900"
+                        >
+                          <option value="">Unassigned</option>
+                          {currentProject?.client && (
+                            <option value={(currentProject.client as any).id}>{(currentProject.client as any).fullName} (Client)</option>
+                          )}
+                          {currentProject?.freelancer && (
+                            <option value={(currentProject.freelancer as any).id}>{(currentProject.freelancer as any).fullName} (Freelancer)</option>
+                          )}
+                        </select>
+                      </div>
                       <div className="flex justify-end gap-2 pt-2">
                         <Button variant="ghost" onClick={() => setShowTaskModal(false)}>Cancel</Button>
                         <Button type="submit" isLoading={createTaskMutation.isPending}>Create Task</Button>
@@ -728,9 +1214,14 @@ export default function Workspace() {
           {/* ── TAB 3: MILESTONES ── */}
           {tab === "Milestones" && (
             <div className="space-y-6">
-              <div>
-                <h2 className="text-lg font-bold text-ink-900">Project Milestones & Disbursements</h2>
-                <p className="text-xs text-ink-500">Submit deliverables for active milestones to claim Escrow payments.</p>
+              <div className="flex justify-between items-center">
+                <div>
+                  <h2 className="text-lg font-bold text-ink-900">Project Milestones & Disbursements</h2>
+                  <p className="text-xs text-ink-500">Submit deliverables for active milestones to claim Escrow payments.</p>
+                </div>
+                <Button size="sm" onClick={openCreateMilestone}>
+                  <Plus className="h-4 w-4 mr-1.5" /> Create Milestone
+                </Button>
               </div>
 
               {loadingMilestones ? (
@@ -751,7 +1242,7 @@ export default function Workspace() {
                         <div className="flex items-center gap-3">
                           <p className="font-extrabold text-brand-600">{formatCurrency(m.budget)}</p>
                           <Badge tone={
-                            m.status === "approved" ? "success" :
+                            m.status === "approved" || m.status === "completed" ? "success" :
                             m.status === "submitted" ? "warning" :
                             m.status === "in_progress" ? "brand" : "neutral"
                           }>
@@ -768,6 +1259,47 @@ export default function Workspace() {
                         </div>
                       )}
 
+                      {/* Quick status set: Pending / In Progress / Completed — only
+                          shown before a milestone enters the formal submit/review
+                          pipeline, since these 3 options can't represent
+                          submitted/approved/rejected without misrepresenting them. */}
+                      <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-surface-border">
+                        {["pending", "in_progress", "completed"].includes(m.status) ? (
+                          <>
+                            <label className="text-[10px] font-bold uppercase text-ink-400">Status</label>
+                            <select
+                              value={m.status}
+                              onChange={(e) =>
+                                setMilestoneStatusMutation.mutate({ milestoneId: m.id, status: e.target.value as "pending" | "in_progress" | "completed" })
+                              }
+                              className="rounded-lg border border-surface-border bg-surface-card px-2 py-1 text-xs outline-none text-ink-900"
+                            >
+                              <option value="pending">Pending</option>
+                              <option value="in_progress">In Progress</option>
+                              <option value="completed">Completed</option>
+                            </select>
+                          </>
+                        ) : (
+                          <span className="text-[10px] text-ink-400 italic">In review pipeline — use Submit/Review actions below.</span>
+                        )}
+
+                        <div className="ml-auto flex gap-2">
+                          <Button size="sm" variant="outline" onClick={() => openEditMilestone(m)}>Edit</Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-danger hover:bg-danger/5"
+                            onClick={() => {
+                              if (confirm(`Delete milestone "${m.title}"? This cannot be undone.`)) {
+                                deleteMilestoneMutation.mutate(m.id);
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+
                       {/* Action buttons depending on state */}
                       <div className="flex gap-2 justify-end">
                         {m.status === "in_progress" && (
@@ -780,15 +1312,74 @@ export default function Workspace() {
                             <Button size="sm" variant="outline" onClick={() => setSubmittingMilestoneId(m.id)}>
                               Edit Submission
                             </Button>
-                            {/* Simulation review action */}
-                            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setReviewingMilestoneId(m.id)}>
-                              Approve Payment (Client Sim)
-                            </Button>
+                            {/* Only the client approves/requests revision */}
+                            {user?.role === "client" && (
+                              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setReviewingMilestoneId(m.id)}>
+                                Review Submission
+                              </Button>
+                            )}
                           </div>
                         )}
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Create / Edit Milestone Modal */}
+              {showMilestoneModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                  <div className="w-full max-w-lg rounded-3xl border border-surface-border bg-surface-card p-6 shadow-card">
+                    <h3 className="text-lg font-bold text-ink-900 mb-4">{editingMilestoneId ? "Edit Milestone" : "Create Milestone"}</h3>
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (editingMilestoneId) updateMilestoneMutation.mutate();
+                        else createMilestoneMutation.mutate();
+                      }}
+                      className="space-y-4"
+                    >
+                      <Input
+                        label="Milestone Title"
+                        placeholder="Design system handoff"
+                        value={milestoneTitle}
+                        onChange={(e) => setMilestoneTitle(e.target.value)}
+                        required
+                      />
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-ink-700 mb-1.5">Description</label>
+                        <textarea
+                          placeholder="What does this milestone cover?"
+                          value={milestoneDescription}
+                          onChange={(e) => setMilestoneDescription(e.target.value)}
+                          className="w-full h-24 rounded-xl border border-surface-border p-3 text-xs outline-none bg-surface-card"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Input
+                          label="Budget"
+                          type="number"
+                          min={0}
+                          value={milestoneBudget}
+                          onChange={(e) => setMilestoneBudget(Number(e.target.value))}
+                          required
+                        />
+                        <Input
+                          label="Due Date"
+                          type="date"
+                          value={milestoneDueDate}
+                          onChange={(e) => setMilestoneDueDate(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="ghost" onClick={resetMilestoneForm}>Cancel</Button>
+                        <Button type="submit" isLoading={createMilestoneMutation.isPending || updateMilestoneMutation.isPending}>
+                          {editingMilestoneId ? "Save Changes" : "Create Milestone"}
+                        </Button>
+                      </div>
+                    </form>
+                  </div>
                 </div>
               )}
 
@@ -1109,28 +1700,51 @@ export default function Workspace() {
                 </div>
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
-                  {files.map((file) => (
-                    <div key={file.id} className="rounded-3xl border border-surface-border bg-surface-card p-4 shadow-sm hover:shadow-card transition-all flex flex-col justify-between h-32">
-                      <div className="flex items-start gap-3">
-                        <div className="rounded-lg bg-brand-50 p-2 text-brand-600">
-                          <Paperclip className="h-5 w-5" />
+                  {files.map((file) => {
+                    const isImage = file.mimetype?.startsWith("image/");
+                    const canDelete =
+                      user?.role === "admin" ||
+                      (typeof file.uploadedBy === "object" && (file.uploadedBy as any)?.id === myId);
+                    return (
+                      <div key={file.id} className="rounded-3xl border border-surface-border bg-surface-card p-4 shadow-sm hover:shadow-card transition-all flex flex-col justify-between min-h-[128px]">
+                        <div className="flex items-start gap-3">
+                          {isImage && file.thumbnailUrl ? (
+                            <img src={file.thumbnailUrl} alt={file.name} className="h-10 w-10 rounded-lg object-cover shrink-0" />
+                          ) : (
+                            <div className="rounded-lg bg-brand-50 p-2 text-brand-600 shrink-0">
+                              {isImage ? <ImageIcon className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-xs text-ink-900 truncate leading-snug">{file.name}</p>
+                            <p className="text-[10px] text-ink-400 mt-0.5">{file.size}</p>
+                            {typeof file.uploadedBy === "object" && file.uploadedBy?.fullName && (
+                              <p className="text-[10px] text-ink-400 mt-0.5">by {file.uploadedBy.fullName}</p>
+                            )}
+                          </div>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-bold text-xs text-ink-900 truncate leading-snug">{file.name}</p>
-                          <p className="text-[10px] text-ink-400 mt-0.5">{file.size}</p>
-                        </div>
-                      </div>
 
-                      <div className="flex justify-end gap-1.5 pt-2 border-t border-surface-border">
-                        <a href={file.url} target="_blank" rel="noreferrer" className="rounded-lg p-1.5 bg-surface-muted hover:bg-surface-border text-ink-500 hover:text-ink-900 transition-colors">
-                          <Eye className="h-4 w-4" />
-                        </a>
-                        <a href={file.url} download className="rounded-lg p-1.5 bg-surface-muted hover:bg-surface-border text-ink-500 hover:text-ink-900 transition-colors">
-                          <Download className="h-4 w-4" />
-                        </a>
+                        <div className="flex justify-end gap-1.5 pt-2 border-t border-surface-border">
+                          <a href={file.url} target="_blank" rel="noreferrer" className="rounded-lg p-1.5 bg-surface-muted hover:bg-surface-border text-ink-500 hover:text-ink-900 transition-colors" title="Preview">
+                            <Eye className="h-4 w-4" />
+                          </a>
+                          <a href={file.url} download className="rounded-lg p-1.5 bg-surface-muted hover:bg-surface-border text-ink-500 hover:text-ink-900 transition-colors" title="Download">
+                            <Download className="h-4 w-4" />
+                          </a>
+                          {canDelete && (
+                            <button
+                              onClick={() => deleteFileMutation.mutate(file.id)}
+                              disabled={deleteFileMutation.isPending}
+                              className="rounded-lg p-1.5 bg-surface-muted hover:bg-danger/10 text-ink-500 hover:text-danger transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1138,45 +1752,131 @@ export default function Workspace() {
 
           {/* ── TAB 7: MESSAGES ── */}
           {tab === "Messages" && (
-            <div className="rounded-3xl border border-surface-border bg-surface-card shadow-card flex flex-col h-[500px]">
-              
+            <div className="rounded-3xl border border-surface-border bg-surface-card shadow-card flex flex-col h-[600px]">
+
+              {/* Header: presence + search */}
+              <div className="flex items-center justify-between gap-3 p-4 border-b border-surface-border">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Avatar src={otherUser?.avatar} name={otherUser?.fullName || "User"} size="sm" />
+                    <span
+                      className={cn(
+                        "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface-card",
+                        otherOnline ? "bg-emerald-500" : "bg-ink-300"
+                      )}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-ink-900">{otherUser?.fullName || "User"}</p>
+                    <p className="text-[10px] text-ink-400">
+                      {otherOnline
+                        ? "Online"
+                        : otherLastSeen
+                        ? `Last seen ${new Date(otherLastSeen).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}`
+                        : "Offline"}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 rounded-xl border border-surface-border bg-surface-muted px-3 py-1.5 w-56">
+                  <Search className="h-3.5 w-3.5 text-ink-400 shrink-0" />
+                  <input
+                    placeholder="Search messages..."
+                    value={messageSearch}
+                    onChange={(e) => setMessageSearch(e.target.value)}
+                    className="w-full text-xs outline-none bg-transparent text-ink-900 placeholder:text-ink-400"
+                  />
+                </div>
+              </div>
+
               {/* Message log area */}
               <div className="flex-1 p-6 overflow-y-auto space-y-4">
-                {projectMessages.length === 0 ? (
-                  <p className="text-xs text-ink-400 text-center py-20">No messages exchanged yet. Say hello!</p>
+                {loadingMessages || searchingMessages ? (
+                  <div className="flex h-20 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-brand-600" /></div>
+                ) : displayedMessages.length === 0 ? (
+                  <p className="text-xs text-ink-400 text-center py-20">
+                    {messageSearch.trim() ? "No messages match your search." : "No messages exchanged yet. Say hello!"}
+                  </p>
                 ) : (
-                  projectMessages.map((msg: any) => {
-                    const isSelf = msg.sender === user?._id;
+                  displayedMessages.map((msg) => {
+                    const senderId = msg.senderId || (typeof msg.sender === "object" ? msg.sender?.id : undefined);
+                    const senderName = msg.senderName || (typeof msg.sender === "object" ? msg.sender?.fullName : undefined);
+                    const senderAvatar = msg.senderAvatar || (typeof msg.sender === "object" ? msg.sender?.avatar : undefined);
+                    const isSelf = senderId === myId;
                     return (
-                      <div key={msg._id || msg.id} className={cn("flex gap-3 max-w-[80%]", isSelf ? "ml-auto flex-row-reverse" : "")}>
-                        <Avatar src={isSelf ? user?.avatar || user?.avatarUrl : currentProject.client?.avatar} name={isSelf ? (user?.fullName || "User") : (currentProject.client?.fullName || "Client")} size="sm" />
+                      <div key={msg.id} className={cn("flex gap-3 max-w-[80%]", isSelf ? "ml-auto flex-row-reverse" : "")}>
+                        <Avatar
+                          src={isSelf ? user?.avatar || user?.avatarUrl : senderAvatar}
+                          name={isSelf ? (user?.fullName || "User") : (senderName || "User")}
+                          size="sm"
+                        />
                         <div className={cn("rounded-2xl p-3 text-xs leading-relaxed", isSelf ? "bg-brand-600 text-white rounded-tr-none" : "bg-surface-muted text-ink-800 rounded-tl-none")}>
                           <p>{msg.content}</p>
-                          <span className={cn("text-[9px] block mt-1 text-right", isSelf ? "text-white/70" : "text-ink-400")}>
-                            {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          <span className={cn("flex items-center gap-1 justify-end mt-1", isSelf ? "text-white/70" : "text-ink-400")}>
+                            <span className="text-[9px]">
+                              {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                            {isSelf && (msg.read ? <CheckCheck className="h-3 w-3" /> : <Check className="h-3 w-3" />)}
                           </span>
                         </div>
                       </div>
                     );
                   })
                 )}
+                {otherTyping && !messageSearch.trim() && (
+                  <div className="flex items-center gap-2 text-xs text-ink-400 italic">
+                    <Avatar src={otherUser?.avatar} name={otherUser?.fullName || "User"} size="sm" />
+                    {otherUser?.fullName || "They"} are typing...
+                  </div>
+                )}
                 <div ref={messagesEndRef} />
               </div>
 
               {/* Chat Input */}
-              <form
-                onSubmit={(e) => { e.preventDefault(); postMessageMutation.mutate(); }}
-                className="p-4 border-t border-surface-border bg-surface-muted/50 flex gap-2"
-              >
+              <form onSubmit={handleSendMessage} className="p-4 border-t border-surface-border bg-surface-muted/50 flex gap-2">
                 <input
                   placeholder="Type your message here..."
                   value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
+                  onChange={(e) => handleMessageInputChange(e.target.value)}
                   className="flex-1 h-11 rounded-xl border border-surface-border px-4 text-xs outline-none bg-surface-card text-ink-900"
                   required
                 />
-                <Button type="submit" isLoading={postMessageMutation.isPending} icon={<Send className="h-4 w-4" />} />
+                <Button type="submit" isLoading={sendingMessage} icon={<Send className="h-4 w-4" />} />
               </form>
+            </div>
+          )}
+
+          {/* ── TAB: PROJECT TIMELINE (internal value "Activity") ── */}
+          {tab === "Activity" && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-lg font-bold text-ink-900">Project Timeline</h2>
+                <p className="text-xs text-ink-500">
+                  Complete activity history — project creation, proposal acceptance, milestone and task
+                  updates, file uploads, chat activity, and completion — sorted by latest.
+                </p>
+              </div>
+
+              {loadingTimeline ? (
+                <div className="flex h-32 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-brand-600" /></div>
+              ) : timelineActivity.length === 0 ? (
+                <div className="rounded-3xl border border-surface-border bg-surface-card p-8 text-center text-ink-500">
+                  No activity recorded for this project yet.
+                </div>
+              ) : (
+                <div className="rounded-3xl border border-surface-border bg-surface-card p-6 shadow-card">
+                  <div className="relative border-l border-surface-border pl-6 ml-3 space-y-6">
+                    {timelineActivity.map((a) => (
+                      <div key={a.id} className="relative">
+                        <span className="absolute -left-[31px] top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-brand-500 bg-surface-card" />
+                        <p className="text-sm text-ink-800">{a.message}</p>
+                        <p className="text-[11px] text-ink-400 mt-0.5">
+                          {a.actor?.fullName || "System"} • {new Date(a.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1423,7 +2123,7 @@ export default function Workspace() {
                         size="sm"
                         icon={<ChevronRight className="h-4 w-4" />}
                         iconPosition="right"
-                        onClick={() => navigate(`/workspace?project=${project.id}`)}
+                        onClick={() => navigate(`/workspace/${project.id}`)}
                       >
                         Open Workspace
                       </Button>

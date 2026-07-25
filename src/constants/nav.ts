@@ -4,6 +4,7 @@ import {
   MessageSquare, CreditCard, BarChart3, Settings, Search,
   Star, Wallet, Award, Users, Building2, ShieldCheck,
   Zap, ShieldAlert, Activity, TrendingUp, HelpCircle, Bell,
+  Bookmark, Mail, ClipboardCheck,
 } from "lucide-react";
 import { ROUTES } from "@/constants/routes";
 
@@ -15,31 +16,35 @@ export interface NavItem {
 }
 
 export const CLIENT_NAV: NavItem[] = [
-  { label: "Dashboard",   href: ROUTES.CLIENT_DASHBOARD,  icon: LayoutGrid },
-  { label: "Post Job",    href: ROUTES.POST_JOB,          icon: PlusCircle },
-  { label: "My Jobs",     href: ROUTES.JOBS,              icon: Briefcase },
-  { label: "Proposals",   href: ROUTES.PROPOSALS,         icon: FileText },
-  { label: "Projects",    href: ROUTES.WORKSPACE,         icon: FolderKanban },
-  { label: "Messages",    href: ROUTES.MESSAGES,          icon: MessageSquare },
-  { label: "Payments",    href: ROUTES.CLIENT_PAYMENTS,   icon: CreditCard },
-  { label: "Analytics",   href: ROUTES.CLIENT_ANALYTICS,  icon: BarChart3 },
-  { label: "Notifications", href: ROUTES.NOTIFICATIONS,   icon: Bell },
-  { label: "Settings",    href: ROUTES.SETTINGS,          icon: Settings },
-  { label: "Help Center", href: ROUTES.HELP,              icon: HelpCircle },
+  { label: "Dashboard",    href: ROUTES.CLIENT_DASHBOARD,           icon: LayoutGrid    },
+  { label: "Activity",     href: ROUTES.CLIENT_ACTIVITY,            icon: Activity      },
+  { label: "Post Job",     href: ROUTES.CLIENT_POST_JOB,            icon: PlusCircle    },
+  { label: "My Jobs",      href: ROUTES.CLIENT_MY_JOBS,             icon: Briefcase     },
+  { label: "Applications", href: ROUTES.CLIENT_APPLICATIONS,        icon: FileText      },
+  { label: "Active Projects", href: ROUTES.CLIENT_ACTIVE_PROJECTS,  icon: FolderKanban  },
+  { label: "Submitted Projects", href: ROUTES.CLIENT_SUBMITTED_PROJECTS, icon: ClipboardCheck },
+  { label: "Saved Freelancers", href: ROUTES.CLIENT_SAVED_FREELANCERS, icon: Bookmark   },
+  { label: "Messages",     href: ROUTES.MESSAGES,                   icon: MessageSquare },
+  { label: "Payments",     href: ROUTES.CLIENT_PAYMENTS,            icon: CreditCard    },
+  { label: "Analytics",    href: ROUTES.CLIENT_ANALYTICS,           icon: BarChart3     },
+  { label: "Notifications",href: ROUTES.NOTIFICATIONS,              icon: Bell          },
+  { label: "Settings",     href: ROUTES.SETTINGS,                   icon: Settings      },
+  { label: "Help Center",  href: ROUTES.HELP,                       icon: HelpCircle    },
 ];
 
 export const FREELANCER_NAV: NavItem[] = [
-  { label: "Dashboard",    href: ROUTES.FREELANCER_DASHBOARD, icon: LayoutGrid },
-  { label: "Browse Jobs",  href: ROUTES.JOBS,                 icon: Search },
-  { label: "My Proposals", href: ROUTES.PROPOSALS,            icon: FileText },
-  { label: "Projects",     href: ROUTES.WORKSPACE,            icon: FolderKanban },
-  { label: "Portfolio",    href: ROUTES.PROFILE,              icon: Briefcase },
-  { label: "Messages",     href: ROUTES.MESSAGES,             icon: MessageSquare },
-  { label: "Reviews",      href: ROUTES.FREELANCER_REVIEWS,   icon: Star },
-  { label: "Earnings",     href: ROUTES.FREELANCER_EARNINGS,  icon: Wallet },
-  { label: "Notifications", href: ROUTES.NOTIFICATIONS,       icon: Bell },
-  { label: "Settings",     href: ROUTES.SETTINGS,             icon: Settings },
-  { label: "Help Center",  href: ROUTES.HELP,                 icon: HelpCircle },
+  { label: "Dashboard",    href: ROUTES.FREELANCER_DASHBOARD,        icon: LayoutGrid },
+  { label: "Browse Jobs",  href: ROUTES.JOBS,                        icon: Search },
+  { label: "My Proposals", href: ROUTES.PROPOSALS,                   icon: FileText },
+  { label: "Invitations",  href: ROUTES.FREELANCER_INVITATIONS,      icon: Mail },
+  { label: "Active Projects", href: ROUTES.FREELANCER_ACTIVE_PROJECTS, icon: FolderKanban },
+  { label: "Portfolio",    href: ROUTES.PROFILE,                     icon: Briefcase },
+  { label: "Messages",     href: ROUTES.MESSAGES,                    icon: MessageSquare },
+  { label: "Reviews",      href: ROUTES.FREELANCER_REVIEWS,          icon: Star },
+  { label: "Earnings",     href: ROUTES.FREELANCER_EARNINGS,         icon: Wallet },
+  { label: "Notifications", href: ROUTES.NOTIFICATIONS,              icon: Bell },
+  { label: "Settings",     href: ROUTES.SETTINGS,                    icon: Settings },
+  { label: "Help Center",  href: ROUTES.HELP,                        icon: HelpCircle },
 ];
 
 export const ADMIN_NAV: NavItem[] = [

@@ -196,20 +196,36 @@ export const create = async (req, res, next) => {
   try {
     const {
       title, description, budgetMin, budgetMax, priceType,
-      experienceLevel, skills, category, duration,
-      location, workType, deadline,
+      experienceLevel, skills, category, duration, subcategory,
+      location, workType, deadline, visibility,
+      englishLevel, freelancersNeeded, currency, estimatedHours,
+      featured, urgent, allowAIMatching, allowMultipleProposals,
+      proposalDeadline, projectStartDate, expectedCompletionDate,
     } = req.body;
 
     const job = await Job.create({
       client: req.user._id,
       title, description, budgetMin, budgetMax, priceType,
-      experienceLevel, skills, category, duration,
+      experienceLevel, skills, category, duration, subcategory,
       location:        location  || "Remote",
       workType:        workType  || "remote",
       deadline:        deadline  || null,
+      visibility:      visibility || "public",
       clientRating:    0,
       paymentVerified: false,
       status:          "open",
+      // Module 2 fields
+      englishLevel:        englishLevel || "intermediate",
+      freelancersNeeded:   freelancersNeeded || 1,
+      currency:            currency || "INR",
+      estimatedHours:      estimatedHours || 0,
+      featured:            featured || false,
+      urgent:              urgent || false,
+      allowAIMatching:     allowAIMatching !== false,
+      allowMultipleProposals: allowMultipleProposals !== false,
+      proposalDeadline:    proposalDeadline || null,
+      projectStartDate:    projectStartDate || null,
+      expectedCompletionDate: expectedCompletionDate || null,
     });
 
     res.status(201).json({ success: true, data: job, message: "Job post created successfully." });
@@ -244,6 +260,122 @@ export const publish = async (req, res, next) => {
     job.status = "open";
     await job.save();
     res.status(200).json({ success: true, data: job, message: "Job published." });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** PATCH /api/jobs/:id/close — sets status to "closed" */
+export const closeJob = async (req, res, next) => {
+  try {
+    const job = await Job.findById(req.params.id);
+    if (!job) return res.status(404).json({ success: false, message: "Job not found." });
+    if (job.client.toString() !== req.user.id && req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Not authorized." });
+    }
+    job.status = "closed";
+    await job.save();
+    res.status(200).json({ success: true, data: job, message: "Job closed." });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** PATCH /api/jobs/:id/draft — saves job as draft (status = draft) */
+export const saveDraftJob = async (req, res, next) => {
+  try {
+    const {
+      title, description, budgetMin, budgetMax, priceType,
+      experienceLevel, skills, category, subcategory, duration,
+      location, workType, deadline, visibility,
+      englishLevel, freelancersNeeded, currency, estimatedHours,
+      featured, urgent, allowAIMatching, allowMultipleProposals,
+      proposalDeadline, projectStartDate, expectedCompletionDate,
+    } = req.body;
+
+    const job = await Job.create({
+      client: req.user._id,
+      title:           title || "Untitled Draft",
+      description:     description || "",
+      budgetMin:       budgetMin || 0,
+      budgetMax:       budgetMax || 0,
+      priceType:       priceType || "fixed",
+      experienceLevel: experienceLevel || "intermediate",
+      skills:          skills || [],
+      category:        category || "General",
+      subcategory:     subcategory || "",
+      duration:        duration || "1-3 months",
+      location:        location || "Remote",
+      workType:        workType || "remote",
+      deadline:        deadline || null,
+      visibility:      visibility || "public",
+      status:          "draft",
+      // Module 2 fields
+      englishLevel:        englishLevel || "intermediate",
+      freelancersNeeded:   freelancersNeeded || 1,
+      currency:            currency || "INR",
+      estimatedHours:      estimatedHours || 0,
+      featured:            featured || false,
+      urgent:              urgent || false,
+      allowAIMatching:     allowAIMatching !== false,
+      allowMultipleProposals: allowMultipleProposals !== false,
+      proposalDeadline:    proposalDeadline || null,
+      projectStartDate:    projectStartDate || null,
+      expectedCompletionDate: expectedCompletionDate || null,
+    });
+
+    res.status(201).json({ success: true, data: job, message: "Job saved as draft." });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** POST /api/jobs/publish-new — creates and immediately publishes a job */
+export const createAndPublish = async (req, res, next) => {
+  try {
+    const {
+      title, description, budgetMin, budgetMax, priceType,
+      experienceLevel, skills, category, subcategory, duration,
+      location, workType, deadline, visibility,
+      englishLevel, freelancersNeeded, currency, estimatedHours,
+      featured, urgent, allowAIMatching, allowMultipleProposals,
+      proposalDeadline, projectStartDate, expectedCompletionDate,
+    } = req.body;
+
+    const job = await Job.create({
+      client: req.user._id,
+      title,
+      description,
+      budgetMin,
+      budgetMax:       budgetMax || budgetMin,
+      priceType:       priceType || "fixed",
+      experienceLevel: experienceLevel || "intermediate",
+      skills:          skills || [],
+      category,
+      subcategory:     subcategory || "",
+      duration:        duration || "1-3 months",
+      location:        location || "Remote",
+      workType:        workType || "remote",
+      deadline:        deadline || null,
+      visibility:      visibility || "public",
+      clientRating:    0,
+      paymentVerified: false,
+      status:          "open",
+      // Module 2 fields
+      englishLevel:        englishLevel || "intermediate",
+      freelancersNeeded:   freelancersNeeded || 1,
+      currency:            currency || "INR",
+      estimatedHours:      estimatedHours || 0,
+      featured:            featured || false,
+      urgent:              urgent || false,
+      allowAIMatching:     allowAIMatching !== false,
+      allowMultipleProposals: allowMultipleProposals !== false,
+      proposalDeadline:    proposalDeadline || null,
+      projectStartDate:    projectStartDate || null,
+      expectedCompletionDate: expectedCompletionDate || null,
+    });
+
+    res.status(201).json({ success: true, data: job, message: "Job published successfully." });
   } catch (error) {
     next(error);
   }

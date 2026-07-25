@@ -1,5 +1,11 @@
 import { apiClient } from "@/lib/axios";
-import type { ApiResponse, PaginatedResponse, FreelancerDashboardStats, FeedActivityItem } from "@/types";
+import type {
+  ApiResponse,
+  PaginatedResponse,
+  FreelancerDashboardStats,
+  FeedActivityItem,
+  ClientDashboardStats,
+} from "@/types";
 
 export interface FreelancerAnalyticsData {
   monthlyEarnings:     { month: string; year: number; amount: number; contracts: number }[];
@@ -47,4 +53,18 @@ export const dashboardService = {
   /** Full analytics payload for the analytics page */
   getFreelancerAnalytics: () =>
     apiClient.get<ApiResponse<FreelancerAnalyticsData>>("/dashboard/freelancer/analytics"),
+};
+
+// ── Client dashboard services ────────────────────────────────────────────────
+
+export const clientDashboardService = {
+  /** Client KPI stats for the overview dashboard cards */
+  getClientStats: () =>
+    apiClient.get<ApiResponse<ClientDashboardStats>>("/dashboard/client/stats"),
+
+  /** Paginated client activity timeline */
+  getClientActivity: (params?: ActivityFeedParams) =>
+    apiClient.get<ApiResponse<ActivityFeedResponse>>("/dashboard/client/activity", {
+      params,
+    }),
 };

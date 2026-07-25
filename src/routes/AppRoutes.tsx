@@ -12,15 +12,31 @@ const ForgotPassword = lazy(() => import("@/pages/auth/ForgotPassword"));
 
 // Client pages
 const ClientDashboard = lazy(() => import("@/pages/client/ClientDashboard"));
+const ClientActivityFeed = lazy(() => import("@/pages/client/ClientActivityFeed"));
 const ClientAnalytics = lazy(() => import("@/pages/client/ClientAnalytics"));
-const ClientPayments = lazy(() => import("@/pages/client/ClientPayments"));
+const ClientPayments  = lazy(() => import("@/pages/client/ClientPayments"));
+const ClientPostJob   = lazy(() => import("@/pages/client/PostJob"));
+const ClientMyJobs    = lazy(() => import("@/pages/client/MyJobs"));
+const ClientApplications = lazy(() => import("@/pages/client/ClientApplications"));
+const ClientShortlistedFreelancers = lazy(() => import("@/pages/client/ShortlistedFreelancers"));
+const ClientMilestones = lazy(() => import("@/pages/client/ClientMilestones"));
+const ClientContracts = lazy(() => import("@/pages/client/ClientContracts"));
+const ClientProjectFiles = lazy(() => import("@/pages/client/ClientProjectFiles"));
+const ClientActiveProjects = lazy(() => import("@/pages/client/ActiveProjects"));
+const ClientCompanyProfile = lazy(() => import("@/pages/client/ClientCompanyProfile"));
+const ClientReviews = lazy(() => import("@/pages/client/ClientReviews"));
+const ClientSavedFreelancers = lazy(() => import("@/pages/client/SavedFreelancers"));
+const ClientSubmittedProjects = lazy(() => import("@/pages/client/SubmittedProjects"));
+const ClientSettings = lazy(() => import("@/pages/client/ClientSettings"));
 
 // Freelancer pages
 const FreelancerDashboard = lazy(() => import("@/pages/freelancer/FreelancerDashboard"));
 const FreelancerActivityFeed = lazy(() => import("@/pages/freelancer/FreelancerActivityFeed"));
+const FreelancerInvitations = lazy(() => import("@/pages/freelancer/FreelancerInvitations"));
 const FreelancerAnalytics = lazy(() => import("@/pages/freelancer/FreelancerAnalytics"));
 const FreelancerEarnings = lazy(() => import("@/pages/freelancer/FreelancerEarnings"));
 const FreelancerReviews = lazy(() => import("@/pages/freelancer/FreelancerReviews"));
+const FreelancerActiveProjects = lazy(() => import("@/pages/freelancer/ActiveProjects"));
 
 // Shared feature pages
 const BrowseJobs = lazy(() => import("@/pages/jobs/BrowseJobs"));
@@ -28,7 +44,6 @@ const RecommendedJobs = lazy(() => import("@/pages/jobs/RecommendedJobs"));
 const SavedJobs = lazy(() => import("@/pages/jobs/SavedJobs"));
 const JobAlerts = lazy(() => import("@/pages/jobs/JobAlerts"));
 const JobDetails = lazy(() => import("@/pages/jobs/JobDetails"));
-const PostJob = lazy(() => import("@/pages/jobs/PostJob"));
 const ProposalsList = lazy(() => import("@/pages/proposals/ProposalsList"));
 const SubmitProposal = lazy(() => import("@/pages/proposals/SubmitProposal"));
 const Messages = lazy(() => import("@/pages/messages/Messages"));
@@ -77,12 +92,74 @@ export function AppRoutes() {
           element={<ProtectedRoute allowedRoles={["client"]}><ClientDashboard /></ProtectedRoute>}
         />
         <Route
+          path={ROUTES.CLIENT_ACTIVITY}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientActivityFeed /></ProtectedRoute>}
+        />
+        <Route
           path={ROUTES.CLIENT_ANALYTICS}
           element={<ProtectedRoute allowedRoles={["client"]}><ClientAnalytics /></ProtectedRoute>}
         />
         <Route
           path={ROUTES.CLIENT_PAYMENTS}
           element={<ProtectedRoute allowedRoles={["client"]}><ClientPayments /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.CLIENT_POST_JOB}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientPostJob /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.CLIENT_MY_JOBS}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientMyJobs /></ProtectedRoute>}
+        />
+        {/* CLIENT_PROPOSALS is kept as an alias of CLIENT_APPLICATIONS for any
+            existing links; both render the same consolidated Applications page. */}
+        <Route
+          path={ROUTES.CLIENT_PROPOSALS}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientApplications /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.CLIENT_APPLICATIONS}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientApplications /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.CLIENT_SHORTLISTED_FREELANCERS}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientShortlistedFreelancers /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.CLIENT_ACTIVE_PROJECTS}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientActiveProjects /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.CLIENT_PROFILE}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientCompanyProfile /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.CLIENT_REVIEWS}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientReviews /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.CLIENT_SAVED_FREELANCERS}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientSavedFreelancers /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.CLIENT_SUBMITTED_PROJECTS}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientSubmittedProjects /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.CLIENT_MILESTONES}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientMilestones /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.CLIENT_CONTRACTS}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientContracts /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.CLIENT_PROJECT_FILES}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientProjectFiles /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.CLIENT_SETTINGS}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientSettings /></ProtectedRoute>}
         />
 
         {/* ── Freelancer ──────────────────────────────────────────── */}
@@ -95,6 +172,10 @@ export function AppRoutes() {
           element={<ProtectedRoute allowedRoles={["freelancer"]}><FreelancerActivityFeed /></ProtectedRoute>}
         />
         <Route
+          path={ROUTES.FREELANCER_INVITATIONS}
+          element={<ProtectedRoute allowedRoles={["freelancer"]}><FreelancerInvitations /></ProtectedRoute>}
+        />
+        <Route
           path={ROUTES.FREELANCER_ANALYTICS}
           element={<ProtectedRoute allowedRoles={["freelancer"]}><FreelancerAnalytics /></ProtectedRoute>}
         />
@@ -105,6 +186,10 @@ export function AppRoutes() {
         <Route
           path={ROUTES.FREELANCER_REVIEWS}
           element={<ProtectedRoute allowedRoles={["freelancer"]}><FreelancerReviews /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.FREELANCER_ACTIVE_PROJECTS}
+          element={<ProtectedRoute allowedRoles={["freelancer"]}><FreelancerActiveProjects /></ProtectedRoute>}
         />
 
         {/* ── Jobs / Find Work ─────────────────────────────────────── */}
@@ -130,7 +215,7 @@ export function AppRoutes() {
         />
         <Route
           path={ROUTES.POST_JOB}
-          element={<ProtectedRoute allowedRoles={["client"]}><PostJob /></ProtectedRoute>}
+          element={<ProtectedRoute allowedRoles={["client"]}><ClientPostJob /></ProtectedRoute>}
         />
 
         {/* ── Proposals ───────────────────────────────────────────── */}
@@ -153,7 +238,15 @@ export function AppRoutes() {
           element={<ProtectedRoute allowedRoles={["client", "freelancer"]}><Workspace /></ProtectedRoute>}
         />
         <Route
+          path={ROUTES.WORKSPACE_PROJECT}
+          element={<ProtectedRoute allowedRoles={["client", "freelancer"]}><Workspace /></ProtectedRoute>}
+        />
+        <Route
           path={ROUTES.PROFILE}
+          element={<ProtectedRoute><FreelancerProfilePage /></ProtectedRoute>}
+        />
+        <Route
+          path={ROUTES.PROFILE_VIEW}
           element={<ProtectedRoute><FreelancerProfilePage /></ProtectedRoute>}
         />
         <Route

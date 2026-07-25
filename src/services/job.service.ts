@@ -1,5 +1,5 @@
 import { apiClient } from "@/lib/axios";
-import type { ApiResponse, Job, PaginatedResponse } from "@/types";
+import type { ApiResponse, Job, PaginatedResponse, JobCreatePayload } from "@/types";
 
 export interface JobFilters {
   search?:          string;
@@ -39,14 +39,26 @@ export const jobService = {
   getById: (id: string) =>
     apiClient.get<ApiResponse<Job>>(`/jobs/${id}`),
 
-  create: (payload: Partial<Job>) =>
+  create: (payload: Partial<Job> | JobCreatePayload) =>
     apiClient.post<ApiResponse<Job>>("/jobs", payload),
 
-  update: (id: string, payload: Partial<Job>) =>
+  /** Save a job as draft — partial data allowed */
+  saveDraft: (payload: Partial<JobCreatePayload>) =>
+    apiClient.post<ApiResponse<Job>>("/jobs/save-draft", payload),
+
+  /** Create a new job and immediately publish it (status = open) */
+  createAndPublish: (payload: JobCreatePayload) =>
+    apiClient.post<ApiResponse<Job>>("/jobs/publish-new", payload),
+
+  update: (id: string, payload: Partial<Job> | Partial<JobCreatePayload>) =>
     apiClient.patch<ApiResponse<Job>>(`/jobs/${id}`, payload),
 
   publish: (id: string) =>
     apiClient.post<ApiResponse<Job>>(`/jobs/${id}/publish`),
+
+  /** Close an open/in-progress job (sets status = closed) */
+  close: (id: string) =>
+    apiClient.patch<ApiResponse<Job>>(`/jobs/${id}/close`),
 
   delete: (id: string) =>
     apiClient.delete<ApiResponse<null>>(`/jobs/${id}`),

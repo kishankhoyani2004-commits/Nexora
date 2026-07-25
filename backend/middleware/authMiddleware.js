@@ -4,10 +4,17 @@ import User from "../models/User.js";
 export const protect = async (req, res, next) => {
   let token;
 
-  if (req.cookies && req.cookies.token) {
-    token = req.cookies.token;
-  } else if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
+  // The Authorization header is what the SPA explicitly sends for the
+  // account currently active in this tab (via localStorage), so it must
+  // win. The cookie is shared across every tab of the origin — if it took
+  // priority, logging into a second account in another tab (e.g. testing
+  // the freelancer side while a client session is open elsewhere) would
+  // silently hijack every request in the first tab onto the wrong account,
+  // even though its UI still shows the original user.
+  if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
     token = req.headers.authorization.split(" ")[1];
+  } else if (req.cookies && req.cookies.token) {
+    token = req.cookies.token;
   }
 
   if (!token) {

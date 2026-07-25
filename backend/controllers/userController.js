@@ -25,7 +25,13 @@ export const updateUserProfile = async (req, res, next) => {
       return res.status(403).json({ success: false, message: "Not authorized to update this profile." });
     }
 
-    const { fullName, bio, skills, location, portfolio, socialLinks, title, hourlyRate, experience, education, certifications, languages } = req.body;
+    const {
+      fullName, bio, skills, location, portfolio, socialLinks, title, hourlyRate,
+      experience, education, certifications, languages,
+      // Client Company Profile fields
+      companyName, ownerName, phone, website, industry, companySize,
+      country, state, city, address, gstId,
+    } = req.body;
 
     if (fullName) user.fullName = fullName;
     if (bio !== undefined) user.bio = bio;
@@ -39,6 +45,18 @@ export const updateUserProfile = async (req, res, next) => {
     if (certifications) user.certifications = certifications;
     if (languages) user.languages = languages;
     if (socialLinks) user.socialLinks = { ...user.socialLinks, ...socialLinks };
+
+    if (companyName !== undefined) user.companyName = companyName;
+    if (ownerName !== undefined) user.ownerName = ownerName;
+    if (phone !== undefined) user.phone = phone;
+    if (website !== undefined) user.website = website;
+    if (industry !== undefined) user.industry = industry;
+    if (companySize !== undefined) user.companySize = companySize;
+    if (country !== undefined) user.country = country;
+    if (state !== undefined) user.state = state;
+    if (city !== undefined) user.city = city;
+    if (address !== undefined) user.address = address;
+    if (gstId !== undefined) user.gstId = gstId;
 
     await user.save();
     res.status(200).json({ success: true, message: "Profile updated successfully.", user });

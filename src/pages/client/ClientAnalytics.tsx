@@ -1,614 +1,438 @@
+import { useState } from "react";
 import {
-  DollarSign,
-  Briefcase,
-  Users,
-  TrendingUp,
-  BarChart3,
-  CheckCircle2,
-  Calendar,
+  DollarSign, Briefcase, CheckCircle2, FolderKanban,
+  FileText, Percent, Star, Loader2,
 } from "lucide-react";
+import {
+  ResponsiveContainer, AreaChart, Area, BarChart, Bar, LineChart, Line,
+  PieChart, Pie, Cell, XAxis, YAxis, Tooltip, Legend, CartesianGrid,
+} from "recharts";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatCard } from "@/components/cards/StatCard";
-import { CLIENT_NAV } from "@/constants/nav";
-import { useAuth } from "@/context/AuthContext";
+import { Avatar } from "@/components/ui/Avatar";
+import { Badge } from "@/components/ui/Badge";
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/axios";
 import { formatCurrency } from "@/utils/formatters";
+import { cn } from "@/utils/cn";
 
-// ─── Demo / Fallback Data ───────────────────────────────────────────────────
+// ─── Types (mirror backend/controllers/dashboardController.js::getClientAnalytics) ──
 
-const MONTHLY_SPEND = [
-  { month: "Jan", amount: 8200 * 80 },
-  { month: "Feb", amount: 12500 * 80 },
-  { month: "Mar", amount: 9800 * 80 },
-  { month: "Apr", amount: 15200 * 80 },
-  { month: "May", amount: 11000 * 80 },
-  { month: "Jun", amount: 18500 * 80 },
+type RangePreset = "today" | "7d" | "30d" | "12m" | "custom";
+
+interface AnalyticsStats {
+  totalJobsPosted: number;
+  activeProjects: number;
+  completedProjects: number;
+  totalProposalsReceived: number;
+  acceptanceRate: number;
+  totalSpending: number;
+}
+
+interface BucketPoint { label: string; amount?: number; count?: number; received?: number; accepted?: number }
+interface HiringReportRow { label: string; jobsPosted: number; hiresMade: number; avgBudget: number }
+interface FreelancerPerf {
+  freelancerId: string;
+  fullName: string;
+  avatar: string;
+  rating: number;
+  reviewCount: number;
+  totalContracts: number;
+  completedContracts: number;
+  totalPaid: number;
+}
+
+interface AnalyticsData {
+  range: { from: string; to: string; preset: RangePreset };
+  stats: AnalyticsStats;
+  completionRate: number;
+  monthlySpending: BucketPoint[];
+  jobPostingTrends: BucketPoint[];
+  proposalAnalytics: BucketPoint[];
+  hiringReport: HiringReportRow[];
+  projectStatusDistribution: { status: string; count: number }[];
+  topCategories: { category: string; amount: number }[];
+  freelancerPerformance: FreelancerPerf[];
+}
+
+interface ActivityItem {
+  id: string;
+  title: string;
+  description: string;
+  createdAt: string;
+}
+
+const FILTERS: { key: RangePreset; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "7d", label: "Last 7 Days" },
+  { key: "30d", label: "Last 30 Days" },
+  { key: "12m", label: "Last 12 Months" },
+  { key: "custom", label: "Custom Range" },
 ];
 
-const CATEGORIES = [
-  { name: "Web Development", amount: 28400 * 80, color: "#6366f1" },
-  { name: "Mobile Apps",     amount: 19800 * 80, color: "#10b981" },
-  { name: "UI/UX Design",    amount: 12600 * 80, color: "#f59e0b" },
-  { name: "AI / ML",         amount: 9500 * 80,  color: "#8b5cf6" },
-  { name: "DevOps",          amount: 4900 * 80,  color: "#06b6d4" },
-];
+const CATEGORY_COLORS = ["#6366f1", "#10b981", "#f59e0b", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16", "#f97316"];
+const STATUS_COLORS: Record<string, string> = {
+  active: "#6366f1",
+  completed: "#10b981",
+  pending: "#f59e0b",
+  cancelled: "#ef4444",
+  disputed: "#f97316",
+};
 
-const HIRE_ACTIVITY = [
-  { month: "Jan", jobsPosted: 3, hiresMade: 2, avgBudget: "₹2,18,400" },
-  { month: "Feb", jobsPosted: 5, hiresMade: 4, avgBudget: "₹2,50,000" },
-  { month: "Mar", jobsPosted: 4, hiresMade: 3, avgBudget: "₹2,61,360" },
-  { month: "Apr", jobsPosted: 6, hiresMade: 5, avgBudget: "₹2,43,200" },
-  { month: "May", jobsPosted: 4, hiresMade: 3, avgBudget: "₹2,93,360" },
-  { month: "Jun", jobsPosted: 7, hiresMade: 6, avgBudget: "₹2,46,640" },
-];
-
-const SUCCESS_RATE = 87;
-const CATEGORY_MAX = CATEGORIES[0].amount;
-const RING_R = 58;
-const RING_CIRC = 2 * Math.PI * RING_R;
-
-// ─── Component ───────────────────────────────────────────────────────────────
+const cardCls = "rounded-3xl border border-surface-border bg-surface-card p-6 shadow-card";
+const titleCls = "text-base font-bold text-ink-900";
+const subCls = "text-xs text-ink-500 mt-0.5";
 
 export default function ClientAnalytics() {
-  const { user } = useAuth();
+  const [range, setRange] = useState<RangePreset>("12m");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
 
-  // Fetch payment history; fall back to demo aggregates when empty / error
-  const { data: paymentsData } = useQuery({
-    queryKey: ["paymentsHistory"],
+  const queryParams =
+    range === "custom"
+      ? `?range=custom&from=${customFrom}&to=${customTo}`
+      : `?range=${range}`;
+
+  const { data: analyticsRes, isLoading } = useQuery({
+    queryKey: ["client-analytics", range, range === "custom" ? customFrom : null, range === "custom" ? customTo : null],
     queryFn: async () => {
-      const res = await apiClient.get("/payments/history");
+      const res = await apiClient.get<{ success: boolean; data: AnalyticsData }>(`/dashboard/client/analytics${queryParams}`);
       return res.data;
     },
-    enabled: !!user,
+    enabled: range !== "custom" || (!!customFrom && !!customTo),
   });
+  const data = analyticsRes?.data;
 
-  const hasApiData =
-    paymentsData && Array.isArray(paymentsData) && paymentsData.length > 0;
+  const { data: activityRes } = useQuery({
+    queryKey: ["client-activity-feed"],
+    queryFn: async () => {
+      const res = await apiClient.get<{ success: boolean; data: { items: ActivityItem[] } }>("/dashboard/client/activity?limit=10");
+      return res.data;
+    },
+  });
+  const activity = activityRes?.data.items || [];
 
-  const totalSpent = hasApiData
-    ? paymentsData.reduce(
-        (acc: number, p: { amount?: number }) => acc + (p.amount ?? 0),
-        0
-      )
-    : MONTHLY_SPEND.reduce((a, m) => a + m.amount, 0);
-
-  const maxSpend = Math.max(...MONTHLY_SPEND.map((m) => m.amount));
-
-  // ── Shared style helpers ───────────────────────────────────────────────────
-  const card: React.CSSProperties = {
-    background: "var(--color-surface-card, #fff)",
-    border: "1px solid var(--color-surface-border, #e5e7eb)",
-    borderRadius: 20,
-    padding: "1.5rem",
-    boxShadow: "var(--shadow-card, 0 1px 4px rgba(0,0,0,.06))",
-  };
-
-  const sectionTitle: React.CSSProperties = {
-    fontSize: "1rem",
-    fontWeight: 700,
-    color: "var(--color-ink-900, #111827)",
-    margin: 0,
-  };
-
-  const sectionSub: React.CSSProperties = {
-    fontSize: "0.8rem",
-    color: "var(--color-ink-500, #6b7280)",
-    marginTop: 2,
-    marginBottom: 0,
-  };
-
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <DashboardLayout navItems={CLIENT_NAV}>
-      {/* ── Page Header ── */}
-      <div style={{ marginBottom: "2rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 42,
-              height: 42,
-              borderRadius: 12,
-              background: "linear-gradient(135deg,#6366f1,#8b5cf6)",
-              boxShadow: "0 4px 14px rgba(99,102,241,.35)",
-              flexShrink: 0,
-            }}
-          >
-            <BarChart3 size={20} color="#fff" />
-          </span>
-          <div>
-            <h1
-              style={{
-                fontSize: "1.5rem",
-                fontWeight: 800,
-                color: "var(--color-ink-900, #111827)",
-                margin: 0,
-              }}
-            >
-              Client Analytics
-            </h1>
-            <p style={{ ...sectionSub, marginTop: 2 }}>
-              Spending insights &amp; hiring performance overview
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Stat Cards ── */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-          gap: "1.25rem",
-          marginBottom: "1.5rem",
-        }}
-      >
-        <StatCard
-          label="Total Spent"
-          value={formatCurrency(totalSpent)}
-          delta="+22% vs last period"
-          icon={DollarSign}
-          tone="brand"
-        />
-        <StatCard
-          label="Active Jobs"
-          value="6"
-          delta="+2 this month"
-          icon={Briefcase}
-          tone="success"
-        />
-        <StatCard
-          label="Total Hires"
-          value="23"
-          delta="+6 this quarter"
-          icon={Users}
-          tone="info"
-        />
-        <StatCard
-          label="Avg Project Value"
-          value={formatCurrency(3287 * 80)}
-          delta="+8% vs last period"
-          icon={TrendingUp}
-          tone="warning"
-        />
-      </div>
-
-      {/* ── Row 2: Bar Chart + Donut ── */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 300px",
-          gap: "1.25rem",
-          marginBottom: "1.25rem",
-        }}
-      >
-        {/* ─ Spending Trend Bar Chart ─ */}
-        <div style={card}>
-          <div style={{ marginBottom: "1.25rem" }}>
-            <p style={sectionTitle}>Monthly Spending Trend</p>
-            <p style={sectionSub}>Jan – Jun 2025</p>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "flex-end",
-              gap: "0.6rem",
-              height: 180,
-            }}
-          >
-            {MONTHLY_SPEND.map((m) => {
-              const pct = (m.amount / maxSpend) * 100;
-              const isLatest = m.month === "Jun";
-              return (
-                <div
-                  key={m.month}
-                  style={{
-                    flex: 1,
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    height: "100%",
-                    justifyContent: "flex-end",
-                    gap: 5,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: "0.62rem",
-                      fontWeight: 600,
-                      color: "var(--color-ink-500, #6b7280)",
-                    }}
-                  >
-                    ${(m.amount / 1000).toFixed(1)}k
-                  </span>
-                  <div
-                    style={{
-                      width: "100%",
-                      height: `${pct}%`,
-                      minHeight: 8,
-                      borderRadius: "8px 8px 4px 4px",
-                      background: isLatest
-                        ? "linear-gradient(180deg,#818cf8,#6366f1)"
-                        : "linear-gradient(180deg,#c7d2fe,#a5b4fc)",
-                      boxShadow: isLatest
-                        ? "0 4px 16px rgba(99,102,241,.30)"
-                        : "none",
-                    }}
-                  />
-                  <span
-                    style={{
-                      fontSize: "0.7rem",
-                      fontWeight: 600,
-                      color: isLatest
-                        ? "#4f46e5"
-                        : "var(--color-ink-500, #6b7280)",
-                    }}
-                  >
-                    {m.month}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+    <DashboardLayout tagline="Client Hub" searchPlaceholder="Search analytics...">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-extrabold text-ink-900">Client Analytics</h1>
+          <p className="text-sm text-ink-500">Spending insights, hiring performance, and project trends.</p>
         </div>
 
-        {/* ─ Success Rate Donut ─ */}
-        <div
-          style={{
-            ...card,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-          }}
-        >
-          <div style={{ width: "100%", marginBottom: "1.25rem" }}>
-            <p style={sectionTitle}>Project Success Rate</p>
-            <p style={sectionSub}>Jobs completed successfully</p>
-          </div>
-
-          {/* SVG Ring */}
-          <div style={{ position: "relative", width: 148, height: 148 }}>
-            <svg
-              viewBox="0 0 148 148"
-              style={{
-                transform: "rotate(-90deg)",
-                width: "100%",
-                height: "100%",
-              }}
-            >
-              <defs>
-                <linearGradient id="sgGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#6366f1" />
-                  <stop offset="100%" stopColor="#10b981" />
-                </linearGradient>
-              </defs>
-              {/* Track */}
-              <circle
-                cx="74"
-                cy="74"
-                r={RING_R}
-                fill="none"
-                stroke="#e5e7eb"
-                strokeWidth="14"
-              />
-              {/* Arc */}
-              <circle
-                cx="74"
-                cy="74"
-                r={RING_R}
-                fill="none"
-                stroke="url(#sgGrad)"
-                strokeWidth="14"
-                strokeLinecap="round"
-                strokeDasharray={RING_CIRC}
-                strokeDashoffset={RING_CIRC * (1 - SUCCESS_RATE / 100)}
-              />
-            </svg>
-
-            {/* Centre label */}
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "2rem",
-                  fontWeight: 800,
-                  lineHeight: 1,
-                  background: "linear-gradient(135deg,#6366f1,#10b981)",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                }}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-xl bg-surface-muted p-1 text-xs font-semibold">
+            {FILTERS.map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setRange(f.key)}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap",
+                  range === f.key ? "bg-surface-card text-brand-600 shadow-sm" : "text-ink-500 hover:text-ink-900"
+                )}
               >
-                {SUCCESS_RATE}%
-              </span>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          {range === "custom" && (
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={customFrom}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                className="h-9 rounded-lg border border-surface-border bg-surface-card px-2.5 text-xs text-ink-900 outline-none"
+              />
+              <span className="text-xs text-ink-400">to</span>
+              <input
+                type="date"
+                value={customTo}
+                onChange={(e) => setCustomTo(e.target.value)}
+                className="h-9 rounded-lg border border-surface-border bg-surface-card px-2.5 text-xs text-ink-900 outline-none"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {isLoading || !data ? (
+        <div className="flex h-64 items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-brand-600" />
+        </div>
+      ) : (
+        <>
+          {/* ── Stat Cards ── */}
+          <div className="mb-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <StatCard label="Jobs Posted" value={String(data.stats.totalJobsPosted)} icon={Briefcase} tone="brand" />
+            <StatCard label="Active Projects" value={String(data.stats.activeProjects)} icon={FolderKanban} tone="info" />
+            <StatCard label="Completed Projects" value={String(data.stats.completedProjects)} icon={CheckCircle2} tone="success" />
+            <StatCard label="Proposals Received" value={String(data.stats.totalProposalsReceived)} icon={FileText} tone="warning" />
+            <StatCard label="Acceptance Rate" value={`${data.stats.acceptanceRate}%`} icon={Percent} tone="info" />
+            <StatCard label="Total Spending" value={formatCurrency(data.stats.totalSpending)} icon={DollarSign} tone="brand" />
+          </div>
+
+          {/* ── Row: Monthly Spending + Completion Rate ── */}
+          <div className="mb-6 grid gap-5 lg:grid-cols-[1fr_320px]">
+            <div className={cardCls}>
+              <h2 className={titleCls}>Monthly Spending Chart</h2>
+              <p className={subCls}>Escrow released to freelancers over the selected period.</p>
+              <ResponsiveContainer width="100%" height={260}>
+                <AreaChart data={data.monthlySpending} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="spendGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#5b4fee" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="#5b4fee" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e6e4f5" />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#918da3", fontSize: 11 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: "#918da3", fontSize: 11 }} tickFormatter={(v) => formatCurrency(v, { compact: true })} />
+                  <Tooltip
+                    contentStyle={{ borderRadius: 12, border: "1px solid #e6e4f5", fontSize: 12 }}
+                    formatter={(v) => formatCurrency(Number(v))}
+                  />
+                  <Area type="monotone" dataKey="amount" stroke="#5b4fee" strokeWidth={2.5} fill="url(#spendGradient)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className={cn(cardCls, "flex flex-col items-center")}>
+              <div className="w-full">
+                <h2 className={titleCls}>Project Completion Rate</h2>
+                <p className={subCls}>Completed vs. active/cancelled/disputed.</p>
+              </div>
+              <div className="relative my-4 h-40 w-40">
+                <svg viewBox="0 0 148 148" className="h-full w-full -rotate-90">
+                  <circle cx="74" cy="74" r="58" fill="none" stroke="#e5e7eb" strokeWidth="14" />
+                  <circle
+                    cx="74" cy="74" r="58" fill="none" stroke="#10b981" strokeWidth="14" strokeLinecap="round"
+                    strokeDasharray={2 * Math.PI * 58}
+                    strokeDashoffset={2 * Math.PI * 58 * (1 - data.completionRate / 100)}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-3xl font-black text-ink-900">{data.completionRate}%</span>
+                </div>
+              </div>
+              <p className="text-xs text-ink-400">{data.stats.completedProjects} of {data.stats.completedProjects + data.stats.activeProjects} tracked projects completed</p>
             </div>
           </div>
 
-          {/* Legend */}
-          <div
-            style={{
-              marginTop: "1.25rem",
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-              width: "100%",
-            }}
-          >
-            {[
-              { label: "Completed", color: "#6366f1", pct: `${SUCCESS_RATE}%` },
-              {
-                label: "Pending / Open",
-                color: "#e5e7eb",
-                pct: `${100 - SUCCESS_RATE}%`,
-              },
-            ].map((leg) => (
-              <div
-                key={leg.label}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  fontSize: "0.8rem",
-                }}
-              >
-                <span
-                  style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: "50%",
-                    background: leg.color,
-                    border:
-                      leg.color === "#e5e7eb"
-                        ? "1.5px solid #d1d5db"
-                        : "none",
-                    flexShrink: 0,
-                  }}
-                />
-                <span
-                  style={{
-                    color: "var(--color-ink-500, #6b7280)",
-                    flex: 1,
-                  }}
-                >
-                  {leg.label}
-                </span>
-                <span
-                  style={{
-                    fontWeight: 700,
-                    color: "var(--color-ink-900, #111827)",
-                  }}
-                >
-                  {leg.pct}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+          {/* ── Row: Job Posting Trends + Proposal Analytics ── */}
+          <div className="mb-6 grid gap-5 lg:grid-cols-2">
+            <div className={cardCls}>
+              <h2 className={titleCls}>Job Posting Trends</h2>
+              <p className={subCls}>New job posts over time.</p>
+              <ResponsiveContainer width="100%" height={240}>
+                <LineChart data={data.jobPostingTrends} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e6e4f5" />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#918da3", fontSize: 11 }} />
+                  <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: "#918da3", fontSize: 11 }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e6e4f5", fontSize: 12 }} />
+                  <Line type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2.5} dot={{ r: 3 }} name="Jobs Posted" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
 
-      {/* ── Row 3: Categories + Hire Table ── */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: "1.25rem",
-        }}
-      >
-        {/* ─ Top Spending Categories ─ */}
-        <div style={card}>
-          <div style={{ marginBottom: "1.25rem" }}>
-            <p style={sectionTitle}>Top Spending Categories</p>
-            <p style={sectionSub}>All-time breakdown by category</p>
+            <div className={cardCls}>
+              <h2 className={titleCls}>Proposal Analytics</h2>
+              <p className={subCls}>Proposals received vs. accepted.</p>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={data.proposalAnalytics} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e6e4f5" />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#918da3", fontSize: 11 }} />
+                  <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: "#918da3", fontSize: 11 }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e6e4f5", fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="received" fill="#c7d2fe" name="Received" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="accepted" fill="#6366f1" name="Accepted" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            {CATEGORIES.map((cat, i) => {
-              const pct = Math.round((cat.amount / CATEGORY_MAX) * 100);
-              return (
-                <div key={cat.name}>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginBottom: 6,
-                    }}
-                  >
-                    <div
-                      style={{ display: "flex", alignItems: "center", gap: 8 }}
+          {/* ── Row: Project Status Distribution + Top Categories ── */}
+          <div className="mb-6 grid gap-5 lg:grid-cols-2">
+            <div className={cardCls}>
+              <h2 className={titleCls}>Project Status Distribution</h2>
+              <p className={subCls}>All-time snapshot across every project.</p>
+              {data.projectStatusDistribution.length === 0 ? (
+                <p className="py-12 text-center text-sm text-ink-400">No projects yet.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <PieChart>
+                    <Pie
+                      data={data.projectStatusDistribution}
+                      dataKey="count"
+                      nameKey="status"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={55}
+                      outerRadius={85}
+                      paddingAngle={3}
                     >
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          width: 22,
-                          height: 22,
-                          borderRadius: 6,
-                          background: cat.color + "22",
-                          fontSize: "0.68rem",
-                          fontWeight: 700,
-                          color: cat.color,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {i + 1}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: "0.875rem",
-                          fontWeight: 600,
-                          color: "var(--color-ink-900, #111827)",
-                        }}
-                      >
-                        {cat.name}
-                      </span>
-                    </div>
-                    <span
-                      style={{
-                        fontSize: "0.875rem",
-                        fontWeight: 700,
-                        color: "var(--color-ink-900, #111827)",
-                      }}
-                    >
-                      ${cat.amount.toLocaleString()}
-                    </span>
-                  </div>
+                      {data.projectStatusDistribution.map((entry) => (
+                        <Cell key={entry.status} fill={STATUS_COLORS[entry.status] || "#94a3b8"} />
+                      ))}
+                    </Pie>
+                    <Legend wrapperStyle={{ fontSize: 11, textTransform: "capitalize" }} />
+                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e6e4f5", fontSize: 12 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
 
-                  {/* Progress track */}
-                  <div
-                    style={{
-                      height: 7,
-                      borderRadius: 99,
-                      background: "var(--color-surface-border, #e5e7eb)",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div
-                      style={{
-                        height: "100%",
-                        width: `${pct}%`,
-                        borderRadius: 99,
-                        background: cat.color,
-                        boxShadow: `0 0 6px ${cat.color}66`,
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* ─ Hire Activity Table ─ */}
-        <div style={{ ...card, overflow: "hidden" }}>
-          <div style={{ marginBottom: "1.25rem" }}>
-            <p style={sectionTitle}>Hire Activity</p>
-            <p style={sectionSub}>Monthly hiring performance</p>
-          </div>
-
-          <div style={{ overflowX: "auto" }}>
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: "0.85rem",
-              }}
-            >
-              <thead>
-                <tr>
-                  {["Month", "Jobs Posted", "Hires Made", "Avg Budget"].map(
-                    (col) => (
-                      <th
-                        key={col}
-                        style={{
-                          textAlign: col === "Month" ? "left" : "center",
-                          padding: "0 0.75rem 0.75rem",
-                          fontWeight: 600,
-                          fontSize: "0.72rem",
-                          color: "var(--color-ink-500, #6b7280)",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.05em",
-                          borderBottom:
-                            "1px solid var(--color-surface-border, #e5e7eb)",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {col}
-                      </th>
-                    )
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {HIRE_ACTIVITY.map((row, idx) => (
-                  <tr
-                    key={row.month}
-                    style={{
-                      background:
-                        idx % 2 !== 0
-                          ? "rgba(99,102,241,.03)"
-                          : "transparent",
-                    }}
-                  >
-                    {/* Month */}
-                    <td
-                      style={{
-                        padding: "0.7rem 0.75rem",
-                        fontWeight: 700,
-                        color: "var(--color-ink-900, #111827)",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
-                      >
-                        <Calendar size={13} color="#6366f1" />
-                        {row.month}
+            <div className={cardCls}>
+              <h2 className={titleCls}>Top Categories</h2>
+              <p className={subCls}>Spending by job category.</p>
+              {data.topCategories.length === 0 ? (
+                <p className="py-12 text-center text-sm text-ink-400">No spending recorded yet.</p>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  {data.topCategories.map((cat, i) => {
+                    const max = data.topCategories[0].amount || 1;
+                    const pct = Math.round((cat.amount / max) * 100);
+                    const color = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
+                    return (
+                      <div key={cat.category}>
+                        <div className="mb-1 flex items-center justify-between text-xs">
+                          <span className="font-semibold text-ink-800">{cat.category}</span>
+                          <span className="font-bold text-ink-900">{formatCurrency(cat.amount)}</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-surface-muted overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+                        </div>
                       </div>
-                    </td>
-
-                    {/* Jobs Posted */}
-                    <td
-                      style={{
-                        padding: "0.7rem 0.75rem",
-                        textAlign: "center",
-                        color: "var(--color-ink-700, #374151)",
-                      }}
-                    >
-                      {row.jobsPosted}
-                    </td>
-
-                    {/* Hires Made */}
-                    <td
-                      style={{ padding: "0.7rem 0.75rem", textAlign: "center" }}
-                    >
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 4,
-                          fontWeight: 600,
-                          color: "#10b981",
-                        }}
-                      >
-                        <CheckCircle2 size={13} />
-                        {row.hiresMade}
-                      </span>
-                    </td>
-
-                    {/* Avg Budget */}
-                    <td
-                      style={{
-                        padding: "0.7rem 0.75rem",
-                        textAlign: "center",
-                        fontWeight: 600,
-                        color: "#6366f1",
-                      }}
-                    >
-                      {row.avgBudget}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      </div>
+
+          {/* ── Row: Hiring Trends + Monthly Hiring Report ── */}
+          <div className="mb-6 grid gap-5 lg:grid-cols-2">
+            <div className={cardCls}>
+              <h2 className={titleCls}>Hiring Trends</h2>
+              <p className={subCls}>New contracts (hires) over time.</p>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={data.hiringReport} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e6e4f5" />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#918da3", fontSize: 11 }} />
+                  <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: "#918da3", fontSize: 11 }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e6e4f5", fontSize: 12 }} />
+                  <Bar dataKey="hiresMade" fill="#10b981" name="Hires" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className={cn(cardCls, "overflow-hidden")}>
+              <h2 className={titleCls}>Monthly Hiring Report</h2>
+              <p className={subCls}>Jobs posted, hires made, and average budget.</p>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-surface-border text-xs uppercase text-ink-400">
+                      <th className="pb-2">Period</th>
+                      <th className="pb-2 text-center">Jobs Posted</th>
+                      <th className="pb-2 text-center">Hires Made</th>
+                      <th className="pb-2 text-right">Avg Budget</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface-border">
+                    {data.hiringReport.length === 0 ? (
+                      <tr><td colSpan={4} className="py-6 text-center text-ink-400">No data for this period.</td></tr>
+                    ) : (
+                      data.hiringReport.map((row) => (
+                        <tr key={row.label}>
+                          <td className="py-2 font-semibold text-ink-900">{row.label}</td>
+                          <td className="py-2 text-center text-ink-600">{row.jobsPosted}</td>
+                          <td className="py-2 text-center">
+                            <span className="inline-flex items-center gap-1 font-semibold text-emerald-600">
+                              <CheckCircle2 className="h-3.5 w-3.5" /> {row.hiresMade}
+                            </span>
+                          </td>
+                          <td className="py-2 text-right font-semibold text-brand-600">{row.avgBudget > 0 ? formatCurrency(row.avgBudget) : "—"}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Row: Freelancer Performance + Recent Activity ── */}
+          <div className="grid gap-5 lg:grid-cols-[1fr_380px]">
+            <div className={cn(cardCls, "overflow-hidden")}>
+              <h2 className={titleCls}>Freelancer Performance</h2>
+              <p className={subCls}>Every freelancer you've worked with, ranked by total paid.</p>
+              {data.freelancerPerformance.length === 0 ? (
+                <p className="py-12 text-center text-sm text-ink-400">No freelancers hired yet.</p>
+              ) : (
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-surface-border text-xs uppercase text-ink-400">
+                        <th className="pb-2">Freelancer</th>
+                        <th className="pb-2 text-center">Rating</th>
+                        <th className="pb-2 text-center">Contracts</th>
+                        <th className="pb-2 text-center">Completed</th>
+                        <th className="pb-2 text-right">Total Paid</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-surface-border">
+                      {data.freelancerPerformance.map((f) => (
+                        <tr key={f.freelancerId}>
+                          <td className="py-2.5">
+                            <div className="flex items-center gap-2.5">
+                              <Avatar src={f.avatar} name={f.fullName} size="sm" />
+                              <span className="font-semibold text-ink-900">{f.fullName}</span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 text-center">
+                            {f.reviewCount > 0 ? (
+                              <span className="inline-flex items-center gap-1 font-semibold text-ink-800">
+                                <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" /> {f.rating.toFixed(1)}
+                              </span>
+                            ) : (
+                              <span className="text-ink-400">—</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 text-center text-ink-600">{f.totalContracts}</td>
+                          <td className="py-2.5 text-center">
+                            <Badge tone={f.completedContracts === f.totalContracts ? "success" : "warning"}>{f.completedContracts}</Badge>
+                          </td>
+                          <td className="py-2.5 text-right font-bold text-brand-600">{formatCurrency(f.totalPaid)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className={cardCls}>
+              <h2 className={titleCls}>Recent Activity Timeline</h2>
+              <p className={subCls}>Latest events across your account.</p>
+              {activity.length === 0 ? (
+                <p className="py-12 text-center text-sm text-ink-400">No recent activity.</p>
+              ) : (
+                <div className="mt-4 relative border-l border-surface-border pl-5 ml-2 space-y-5 max-h-[420px] overflow-y-auto">
+                  {activity.map((a) => (
+                    <div key={a.id} className="relative">
+                      <span className="absolute -left-[25px] top-1 h-3 w-3 rounded-full border-2 border-brand-500 bg-surface-card" />
+                      <p className="text-sm font-semibold text-ink-900">{a.title}</p>
+                      <p className="text-xs text-ink-500">{a.description}</p>
+                      <p className="text-[10px] text-ink-400 mt-0.5">{new Date(a.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </DashboardLayout>
   );
 }

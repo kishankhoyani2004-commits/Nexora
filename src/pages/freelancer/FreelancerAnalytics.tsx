@@ -330,9 +330,9 @@ export default function FreelancerAnalytics() {
           </div>
         )}
 
-        {/* ── Charts row 2: Proposal breakdown + Client growth ──────── */}
+        {/* ── Charts row 2: Proposal breakdown + Completion rate + Client growth ──────── */}
         {!isLoading && d && (
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-6 lg:grid-cols-4">
 
             {/* Proposal status donut */}
             <div className={cn(cardCls, "flex flex-col items-center")}>
@@ -366,6 +366,29 @@ export default function FreelancerAnalytics() {
                       </div>
                     ))}
                   </div>
+                </>
+              )}
+            </div>
+
+            {/* Project completion rate donut — mirrors the client portal's Analytics view */}
+            <div className={cn(cardCls, "flex flex-col items-center")}>
+              <div className="mb-5 w-full">
+                <p className="text-sm font-bold text-ink-900">Project Completion Rate</p>
+                <p className="text-xs text-ink-500">Completed vs. all your contracts</p>
+              </div>
+              {d.totalContracts === 0 ? (
+                <EmptyState icon={CheckCircle2} title="No projects yet" description="Land your first contract to start tracking completion." />
+              ) : (
+                <>
+                  <DonutRing
+                    pct={Math.round((d.completedContracts / d.totalContracts) * 100)}
+                    label="Completion Rate"
+                    sublabel="completed"
+                    color="linear-gradient(90deg,#10b981,#059669)"
+                  />
+                  <p className="mt-5 text-xs text-ink-400">
+                    {d.completedContracts} of {d.totalContracts} tracked projects completed
+                  </p>
                 </>
               )}
             </div>

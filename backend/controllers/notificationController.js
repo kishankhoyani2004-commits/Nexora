@@ -9,6 +9,15 @@ export const list = async (req, res, next) => {
   }
 };
 
+export const unreadCount = async (req, res, next) => {
+  try {
+    const count = await Notification.countDocuments({ recipient: req.user._id, read: false });
+    res.status(200).json({ success: true, data: { count } });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const markAsRead = async (req, res, next) => {
   try {
     const notification = await Notification.findById(req.params.id);

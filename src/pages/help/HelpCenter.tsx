@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { Link } from "react-router-dom";
 import {
   Search,
   BookOpen,
@@ -9,15 +10,28 @@ import {
   ChevronDown,
   ChevronUp,
   MessageSquare,
-  Mail,
+  Bug,
+  Send,
   ArrowRight,
   HelpCircle,
   Wallet,
-  Star,
+  Sparkles,
+  FolderKanban,
+  Settings as SettingsIcon,
+  Loader2,
+  CheckCircle2,
+  X,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { Input } from "@/components/ui/Input";
+import { Textarea } from "@/components/ui/Textarea";
+import { Button } from "@/components/ui/Button";
 import { CLIENT_NAV, FREELANCER_NAV } from "@/constants/nav";
+import { ROUTES } from "@/constants/routes";
 import { useAuth } from "@/context/AuthContext";
+import { useNotification } from "@/context/NotificationContext";
+import { settingsService } from "@/services/settings.service";
+import { cn } from "@/utils/cn";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,187 +39,208 @@ interface FaqItem {
   id: string;
   question: string;
   answer: string;
+  category: string;
 }
 
 interface CategoryCard {
   icon: React.ReactNode;
   title: string;
   description: string;
-  color: string;
 }
+
+type SupportFormType = "contact" | "bug" | "feedback";
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
 const CATEGORIES: CategoryCard[] = [
-  {
-    icon: <BookOpen size={28} />,
-    title: "Getting Started",
-    description: "New to Nexora? Learn the basics and set up your account.",
-    color: "from-violet-500/20 to-purple-600/10",
-  },
-  {
-    icon: <CreditCard size={28} />,
-    title: "Account & Billing",
-    description: "Manage your profile, subscription, and billing details.",
-    color: "from-sky-500/20 to-cyan-600/10",
-  },
-  {
-    icon: <Briefcase size={28} />,
-    title: "Jobs & Proposals",
-    description: "Post jobs, submit proposals, and manage applications.",
-    color: "from-amber-500/20 to-orange-600/10",
-  },
-  {
-    icon: <Wallet size={28} />,
-    title: "Payments & Escrow",
-    description: "Understand how funds are held, released, and transferred.",
-    color: "from-emerald-500/20 to-green-600/10",
-  },
-  {
-    icon: <ShieldAlert size={28} />,
-    title: "Dispute Resolution",
-    description: "Learn how to resolve conflicts and escalate issues.",
-    color: "from-rose-500/20 to-red-600/10",
-  },
-  {
-    icon: <ScrollText size={28} />,
-    title: "Platform Policies",
-    description: "Review terms, acceptable use policies, and guidelines.",
-    color: "from-indigo-500/20 to-blue-600/10",
-  },
+  { icon: <BookOpen size={24} />, title: "Getting Started", description: "New to Nexora? Learn the basics and set up your account." },
+  { icon: <CreditCard size={24} />, title: "Account & Billing", description: "Manage your profile, subscription, and billing details." },
+  { icon: <Briefcase size={24} />, title: "Jobs & Proposals", description: "Post jobs, submit proposals, and manage applications." },
+  { icon: <Wallet size={24} />, title: "Payments & Escrow", description: "Understand how funds are held, released, and transferred." },
+  { icon: <ShieldAlert size={24} />, title: "Dispute Resolution", description: "Learn how to resolve conflicts and escalate issues." },
+  { icon: <ScrollText size={24} />, title: "Platform Policies", description: "Review terms, acceptable use policies, and guidelines." },
 ];
 
 const ALL_FAQS: FaqItem[] = [
   {
     id: "post-job",
+    category: "Jobs & Proposals",
     question: "How do I post a job on Nexora?",
     answer:
       "To post a job, navigate to Post Job from your dashboard. Fill in the job title, description, required skills, budget type (fixed or hourly), and deadline. Once submitted, your job will be visible to qualified freelancers on the platform. You can edit or close the listing at any time from My Jobs.",
   },
   {
     id: "submit-proposal",
+    category: "Jobs & Proposals",
     question: "How do freelancers submit proposals?",
     answer:
       "Freelancers can browse available jobs via Browse Jobs and click Submit Proposal on any listing. They provide a cover letter, proposed rate, estimated timeline, and relevant portfolio links. As a client, you'll receive all proposals in your Proposals tab and can accept, shortlist, or decline them.",
   },
   {
     id: "escrow",
+    category: "Payments & Escrow",
     question: "How does escrow work?",
     answer:
       "When you hire a freelancer, the agreed amount is locked in Nexora's secure escrow account — it is not sent to the freelancer yet. Once the freelancer delivers the work and you approve it, the funds are released automatically. If a dispute arises, Nexora's mediation team steps in to review the case and decide on a fair outcome.",
   },
   {
     id: "withdraw-earnings",
+    category: "Payments & Escrow",
     question: "How can I withdraw my earnings?",
     answer:
       "Freelancers can withdraw earnings from the Earnings page. Nexora supports PayPal, bank transfer (ACH/SEPA), and cryptocurrency payouts. A minimum balance of $20 is required. Withdrawals are processed within 1–3 business days depending on your selected method. Funds must have cleared the 5-day security hold before they can be withdrawn.",
   },
   {
     id: "client-no-response",
+    category: "Dispute Resolution",
     question: "What happens if a client doesn't respond?",
     answer:
       "If a client becomes unresponsive after work has been delivered, the freelancer can open a dispute from the project workspace. Nexora will attempt to mediate within 48 hours. If the client still does not respond within 7 days, the escrow funds may be released to the freelancer based on evidence of delivery.",
   },
   {
     id: "leave-review",
+    category: "Getting Started",
     question: "How do I leave a review?",
     answer:
       "After a contract is marked complete, both parties are prompted to leave a review within 14 days. Go to the completed project in your Projects section and click Leave Review. Reviews are public and permanently affect both parties' reputation scores on the platform.",
   },
   {
     id: "change-role",
+    category: "Account & Billing",
     question: "Can I change my account role (client ↔ freelancer)?",
     answer:
       "Yes. Go to Settings → Account and look for the Role section. You can request a role switch which takes effect after verification. Note that switching roles does not delete your existing history — your reviews, contracts, and payment history are all preserved. You may need to complete a brief profile update for the new role.",
   },
   {
     id: "platform-fees",
+    category: "Account & Billing",
     question: "What are Nexora's platform fees?",
     answer:
       "Nexora charges a service fee to freelancers based on lifetime earnings with each client: 20% for the first $500, 10% for $500–$10,000, and 5% above $10,000. Clients pay a 3% payment processing fee on top of the project amount. There are no hidden fees — all charges are shown transparently at checkout and in your Payments dashboard.",
   },
+  {
+    id: "terms",
+    category: "Platform Policies",
+    question: "Where can I read Nexora's Terms of Service?",
+    answer:
+      "Our full Terms of Service and Acceptable Use Policy are linked in the footer of every page. They cover account eligibility, prohibited conduct, intellectual property, and dispute procedures — worth a skim before your first contract.",
+  },
+];
+
+const FORM_TABS: { type: SupportFormType; label: string; icon: React.ReactNode; placeholder: string }[] = [
+  { type: "contact", label: "Contact Support", icon: <MessageSquare size={16} />, placeholder: "Describe what you need help with…" },
+  { type: "bug", label: "Report a Problem", icon: <Bug size={16} />, placeholder: "What went wrong? Steps to reproduce help us fix it faster." },
+  { type: "feedback", label: "Feedback", icon: <Sparkles size={16} />, placeholder: "Tell us what you think — ideas, praise, or gripes all welcome." },
 ];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function HelpCenter() {
   const { user } = useAuth();
+  const { notify } = useNotification();
   const isClient = user?.role === "client";
 
   const navItems = isClient ? CLIENT_NAV : FREELANCER_NAV;
 
+  const quickLinks = [
+    { label: "AI Assistant", href: ROUTES.AI_ASSISTANT, icon: Sparkles },
+    { label: "Workspace", href: ROUTES.WORKSPACE, icon: FolderKanban },
+    { label: "Payments", href: isClient ? ROUTES.CLIENT_PAYMENTS : ROUTES.FREELANCER_EARNINGS, icon: Wallet },
+    { label: "Projects", href: isClient ? ROUTES.CLIENT_ACTIVE_PROJECTS : ROUTES.FREELANCER_ACTIVE_PROJECTS, icon: Briefcase },
+    { label: "Settings", href: ROUTES.SETTINGS, icon: SettingsIcon },
+  ];
+
   // Role-aware FAQ ordering: clients see "How to post a job" first,
   // freelancers see "How to submit a proposal" first.
   const faqs = useMemo<FaqItem[]>(() => {
-    if (isClient) {
-      // post-job first, then submit-proposal, then the rest
-      const postJob = ALL_FAQS.find((f) => f.id === "post-job")!;
-      const submitProposal = ALL_FAQS.find((f) => f.id === "submit-proposal")!;
-      const rest = ALL_FAQS.filter(
-        (f) => f.id !== "post-job" && f.id !== "submit-proposal"
-      );
-      return [postJob, submitProposal, ...rest];
-    } else {
-      // submit-proposal first, then post-job, then the rest
-      const submitProposal = ALL_FAQS.find((f) => f.id === "submit-proposal")!;
-      const postJob = ALL_FAQS.find((f) => f.id === "post-job")!;
-      const rest = ALL_FAQS.filter(
-        (f) => f.id !== "post-job" && f.id !== "submit-proposal"
-      );
-      return [submitProposal, postJob, ...rest];
-    }
+    const postJob = ALL_FAQS.find((f) => f.id === "post-job")!;
+    const submitProposal = ALL_FAQS.find((f) => f.id === "submit-proposal")!;
+    const rest = ALL_FAQS.filter((f) => f.id !== "post-job" && f.id !== "submit-proposal");
+    return isClient ? [postJob, submitProposal, ...rest] : [submitProposal, postJob, ...rest];
   }, [isClient]);
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [openFaqId, setOpenFaqId] = useState<string | null>(null);
 
   const filteredFaqs = useMemo(() => {
-    if (!searchQuery.trim()) return faqs;
-    const q = searchQuery.toLowerCase();
-    return faqs.filter(
-      (f) =>
-        f.question.toLowerCase().includes(q) ||
-        f.answer.toLowerCase().includes(q)
-    );
-  }, [searchQuery, faqs]);
+    let result = faqs;
+    if (activeCategory) result = result.filter((f) => f.category === activeCategory);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((f) => f.question.toLowerCase().includes(q) || f.answer.toLowerCase().includes(q));
+    }
+    return result;
+  }, [searchQuery, activeCategory, faqs]);
 
-  const toggleFaq = (id: string) => {
-    setOpenFaqId((prev) => (prev === id ? null : id));
+  const toggleFaq = (id: string) => setOpenFaqId((prev) => (prev === id ? null : id));
+
+  // ── Support form state ──────────────────────────────────────────────────
+  const [formType, setFormType] = useState<SupportFormType>("contact");
+  const [subject, setSubject] = useState("");
+  const [message, setMessage] = useState("");
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  const switchForm = (type: SupportFormType) => {
+    setFormType(type);
+    setSubmitted(false);
+    setFormErrors({});
   };
+
+  const handleSubmitForm = async () => {
+    const errors: Record<string, string> = {};
+    if (!subject.trim()) errors.subject = "Subject is required.";
+    if (!message.trim() || message.trim().length < 10) errors.message = "Please add at least 10 characters.";
+    setFormErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    try {
+      setSubmitting(true);
+      await settingsService.submitFeedback(formType, subject.trim(), message.trim(), user?.email);
+      setSubmitted(true);
+      setSubject("");
+      setMessage("");
+      notify("Thanks — we've received your message.", "success");
+    } catch (err: any) {
+      notify(err.response?.data?.message || "Failed to send. Please try again.", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const activeFormMeta = FORM_TABS.find((f) => f.type === formType)!;
 
   return (
     <DashboardLayout navItems={navItems}>
-      <div className="hc-root">
+      <div className="flex flex-col gap-12 pb-12 pt-6">
         {/* ── Hero ── */}
-        <section className="hc-hero">
-          <div className="hc-hero-glow" />
-          <div className="hc-hero-content">
-            <span className="hc-badge">
+        <section className="relative overflow-hidden rounded-3xl border border-brand-200 bg-gradient-to-br from-brand-50 via-surface-card to-surface-card px-6 py-14 text-center dark:border-brand-800">
+          <div className="relative z-10 mx-auto flex max-w-2xl flex-col items-center gap-4">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-100 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-brand-700">
               <HelpCircle size={14} />
               Support Center
             </span>
-            <h1 className="hc-hero-title">How can we help you?</h1>
-            <p className="hc-hero-subtitle">
-              Search our knowledge base or browse by category below.
-            </p>
-            <div className="hc-search-wrapper">
-              <Search className="hc-search-icon" size={20} />
+            <h1 className="text-3xl font-extrabold text-ink-900 sm:text-4xl">How can we help you?</h1>
+            <p className="text-ink-500">Search our knowledge base or browse by category below.</p>
+            <div className="relative mt-2 w-full max-w-lg">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-ink-400" />
               <input
-                id="help-search"
                 type="text"
                 placeholder="Search for help..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="hc-search-input"
                 autoComplete="off"
+                className="h-14 w-full rounded-2xl border border-surface-border bg-surface-card pl-12 pr-12 text-sm text-ink-900 placeholder:text-ink-400 shadow-card transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
               />
               {searchQuery && (
                 <button
-                  className="hc-search-clear"
                   onClick={() => setSearchQuery("")}
                   aria-label="Clear search"
+                  className="absolute right-4 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-surface-muted text-ink-400 transition-colors hover:bg-red-100 hover:text-danger"
                 >
-                  ✕
+                  <X size={14} />
                 </button>
               )}
             </div>
@@ -213,85 +248,114 @@ export default function HelpCenter() {
         </section>
 
         {/* ── Categories ── */}
-        <section className="hc-section">
-          <h2 className="hc-section-title">Browse by Category</h2>
-          <p className="hc-section-sub">Find answers organized by topic.</p>
-          <div className="hc-categories-grid">
-            {CATEGORIES.map((cat) => (
-              <button key={cat.title} className="hc-cat-card">
-                <div className={`hc-cat-icon-wrap bg-gradient-to-br ${cat.color}`}>
-                  {cat.icon}
-                </div>
-                <div className="hc-cat-body">
-                  <span className="hc-cat-title">{cat.title}</span>
-                  <span className="hc-cat-desc">{cat.description}</span>
-                </div>
-                <ArrowRight size={16} className="hc-cat-arrow" />
+        <section className="flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-extrabold text-ink-900">Browse by Category</h2>
+              <p className="text-sm text-ink-500">Find answers organized by topic.</p>
+            </div>
+            {activeCategory && (
+              <button
+                onClick={() => setActiveCategory(null)}
+                className="text-sm font-semibold text-brand-600 hover:underline"
+              >
+                Clear filter ×
               </button>
-            ))}
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {CATEGORIES.map((cat) => {
+              const isActive = activeCategory === cat.title;
+              return (
+                <button
+                  key={cat.title}
+                  onClick={() => setActiveCategory(isActive ? null : cat.title)}
+                  className={cn(
+                    "group flex items-start gap-3.5 rounded-2xl border p-5 text-left transition-all duration-200 hover:-translate-y-1 hover:shadow-card",
+                    isActive
+                      ? "border-brand-500 bg-brand-50 shadow-card"
+                      : "border-surface-border bg-surface-card hover:border-brand-300"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-colors",
+                      isActive ? "bg-brand-600 text-white" : "bg-brand-50 text-brand-600 group-hover:bg-brand-100"
+                    )}
+                  >
+                    {cat.icon}
+                  </span>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-ink-900">{cat.title}</p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-ink-500">{cat.description}</p>
+                  </div>
+                  <ArrowRight
+                    size={16}
+                    className={cn(
+                      "mt-1 shrink-0 text-ink-300 transition-all duration-200",
+                      "group-hover:translate-x-0.5 group-hover:text-brand-500",
+                      isActive && "text-brand-500"
+                    )}
+                  />
+                </button>
+              );
+            })}
           </div>
         </section>
 
-        {/* ── Popular Articles / FAQ ── */}
-        <section className="hc-section">
-          <h2 className="hc-section-title">Popular Articles</h2>
-          <p className="hc-section-sub">
-            {isClient
-              ? "Answers to the most common questions for clients."
-              : "Answers to the most common questions for freelancers."}
-          </p>
+        {/* ── FAQ ── */}
+        <section className="flex flex-col gap-4">
+          <div>
+            <h2 className="text-xl font-extrabold text-ink-900">Popular Articles</h2>
+            <p className="text-sm text-ink-500">
+              {activeCategory
+                ? `Showing articles in "${activeCategory}".`
+                : isClient
+                ? "Answers to the most common questions for clients."
+                : "Answers to the most common questions for freelancers."}
+            </p>
+          </div>
 
           {filteredFaqs.length === 0 ? (
-            <div className="hc-no-results">
-              <Search size={40} className="hc-no-results-icon" />
-              <p>No articles match &ldquo;{searchQuery}&rdquo;.</p>
-              <button className="hc-link-btn" onClick={() => setSearchQuery("")}>
-                Clear search
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-surface-border bg-surface-card py-14 text-center">
+              <Search size={36} className="text-ink-300" />
+              <p className="text-sm text-ink-500">
+                No articles match{searchQuery ? ` "${searchQuery}"` : " this category"}.
+              </p>
+              <button
+                onClick={() => { setSearchQuery(""); setActiveCategory(null); }}
+                className="text-sm font-semibold text-brand-600 hover:underline"
+              >
+                Clear filters
               </button>
             </div>
           ) : (
-            <div className="hc-accordion">
-              {filteredFaqs.map((faq, idx) => {
+            <div className="flex flex-col gap-2.5">
+              {filteredFaqs.map((faq) => {
                 const isOpen = openFaqId === faq.id;
                 return (
                   <div
                     key={faq.id}
-                    className={`hc-accordion-item${isOpen ? " hc-accordion-item--open" : ""}`}
-                    style={{ animationDelay: `${idx * 40}ms` }}
+                    className={cn(
+                      "overflow-hidden rounded-2xl border bg-surface-card transition-colors",
+                      isOpen ? "border-brand-300 shadow-card" : "border-surface-border"
+                    )}
                   >
                     <button
-                      id={`faq-btn-${faq.id}`}
-                      className="hc-accordion-trigger"
                       onClick={() => toggleFaq(faq.id)}
                       aria-expanded={isOpen}
-                      aria-controls={`faq-panel-${faq.id}`}
+                      className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-surface-muted"
                     >
-                      <span className="hc-accordion-q">{faq.question}</span>
-                      <span className="hc-accordion-chevron">
-                        {isOpen ? (
-                          <ChevronUp size={18} />
-                        ) : (
-                          <ChevronDown size={18} />
-                        )}
+                      <span className="text-sm font-semibold text-ink-900">{faq.question}</span>
+                      <span className="shrink-0 text-brand-600">
+                        {isOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                       </span>
                     </button>
-                    <div
-                      id={`faq-panel-${faq.id}`}
-                      role="region"
-                      aria-labelledby={`faq-btn-${faq.id}`}
-                      className="hc-accordion-panel"
-                    >
-                      <div className="hc-accordion-inner">
-                        <p className="hc-accordion-answer">{faq.answer}</p>
-                        <div className="hc-accordion-footer">
-                          <span className="hc-accordion-helpful-label">
-                            Was this helpful?
-                          </span>
-                          <button className="hc-helpful-btn">👍 Yes</button>
-                          <button className="hc-helpful-btn">👎 No</button>
-                        </div>
+                    {isOpen && (
+                      <div className="border-t border-surface-border px-5 pb-5 pt-4">
+                        <p className="text-sm leading-relaxed text-ink-500">{faq.answer}</p>
                       </div>
-                    </div>
+                    )}
                   </div>
                 );
               })}
@@ -299,618 +363,98 @@ export default function HelpCenter() {
           )}
         </section>
 
-        {/* ── Contact Support ── */}
-        <section className="hc-section">
-          <h2 className="hc-section-title">Still need help?</h2>
-          <p className="hc-section-sub">
-            Our support team is available to assist you.
-          </p>
-          <div className="hc-contact-grid">
-            {/* Live Chat */}
-            <div className="hc-contact-card hc-contact-card--chat">
-              <div className="hc-contact-icon-wrap hc-contact-icon--chat">
-                <MessageSquare size={28} />
-              </div>
-              <div className="hc-contact-body">
-                <h3 className="hc-contact-title">Live Chat</h3>
-                <p className="hc-contact-desc">
-                  Chat with a support agent in real-time. Average response time
-                  is under 2 minutes. Available 24/7.
-                </p>
-                <div className="hc-contact-meta">
-                  <span className="hc-online-dot" />
-                  <span className="hc-online-label">Online now</span>
-                </div>
-              </div>
-              <button id="start-live-chat" className="hc-contact-btn hc-contact-btn--primary">
-                Start Chat
-                <ArrowRight size={16} />
-              </button>
+        {/* ── Quick Links ── */}
+        <section className="flex flex-col gap-4">
+          <h2 className="text-xl font-extrabold text-ink-900">Quick Links</h2>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {quickLinks.map((link) => (
+              <Link
+                key={link.label}
+                to={link.href}
+                className="group flex flex-col items-center gap-2 rounded-2xl border border-surface-border bg-surface-card px-4 py-5 text-center transition-all duration-200 hover:-translate-y-1 hover:border-brand-300 hover:shadow-card"
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-50 text-brand-600 transition-colors group-hover:bg-brand-100">
+                  <link.icon size={20} />
+                </span>
+                <span className="text-xs font-semibold text-ink-900">{link.label}</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        {/* ── Still Need Help? ── */}
+        <section className="flex flex-col gap-4">
+          <div>
+            <h2 className="text-xl font-extrabold text-ink-900">Still need help?</h2>
+            <p className="text-sm text-ink-500">Send us a message and our support team will get back to you.</p>
+          </div>
+
+          <div className="rounded-2xl border border-surface-border bg-surface-card p-6 shadow-card">
+            <div className="mb-5 flex flex-wrap gap-2 border-b border-surface-border pb-4">
+              {FORM_TABS.map((f) => (
+                <button
+                  key={f.type}
+                  onClick={() => switchForm(f.type)}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors",
+                    formType === f.type
+                      ? "bg-brand-50 text-brand-700"
+                      : "text-ink-500 hover:bg-surface-muted hover:text-ink-900"
+                  )}
+                >
+                  {f.icon}
+                  {f.label}
+                </button>
+              ))}
             </div>
 
-            {/* Email Support */}
-            <div className="hc-contact-card hc-contact-card--email">
-              <div className="hc-contact-icon-wrap hc-contact-icon--email">
-                <Mail size={28} />
-              </div>
-              <div className="hc-contact-body">
-                <h3 className="hc-contact-title">Email Support</h3>
-                <p className="hc-contact-desc">
-                  Send us a detailed message and we'll get back to you within
-                  24 hours on business days.
+            {submitted ? (
+              <div className="flex flex-col items-center gap-3 py-8 text-center">
+                <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-success">
+                  <CheckCircle2 size={28} />
+                </span>
+                <p className="text-base font-bold text-ink-900">Message sent!</p>
+                <p className="max-w-sm text-sm text-ink-500">
+                  Thanks for reaching out — our team typically responds within 24 hours on business days.
                 </p>
-                <div className="hc-contact-meta">
-                  <Star size={14} className="hc-star-icon" />
-                  <span className="hc-online-label">4.9/5 satisfaction rate</span>
-                </div>
+                <Button variant="outline" size="sm" className="mt-2" onClick={() => setSubmitted(false)}>
+                  Send another message
+                </Button>
               </div>
-              <button id="send-email-support" className="hc-contact-btn hc-contact-btn--secondary">
-                Send Email
-                <ArrowRight size={16} />
-              </button>
-            </div>
+            ) : (
+              <div className="space-y-4">
+                <Input
+                  label="Subject"
+                  placeholder={
+                    formType === "contact" ? "e.g. Question about escrow release"
+                    : formType === "bug" ? "e.g. Upload button not responding"
+                    : "e.g. Suggestion for the proposal editor"
+                  }
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  error={formErrors.subject}
+                />
+                <Textarea
+                  label="Message"
+                  placeholder={activeFormMeta.placeholder}
+                  rows={5}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  error={formErrors.message}
+                />
+                <Button
+                  icon={<Send className="h-4 w-4" />}
+                  iconPosition="left"
+                  isLoading={submitting}
+                  onClick={handleSubmitForm}
+                >
+                  {submitting ? "Sending…" : `Send ${activeFormMeta.label}`}
+                </Button>
+              </div>
+            )}
           </div>
         </section>
       </div>
-
-      {/* ── Scoped Styles ── */}
-      <style>{`
-        /* ── Root ── */
-        .hc-root {
-          display: flex;
-          flex-direction: column;
-          gap: 3rem;
-          padding: 1.5rem 0 3rem;
-          min-height: 100%;
-        }
-
-        /* ── Hero ── */
-        .hc-hero {
-          position: relative;
-          border-radius: 1.5rem;
-          overflow: hidden;
-          background: linear-gradient(135deg,
-            rgba(139, 92, 246, 0.15) 0%,
-            rgba(59, 130, 246, 0.10) 50%,
-            rgba(16, 185, 129, 0.08) 100%
-          );
-          border: 1px solid rgba(139, 92, 246, 0.2);
-          padding: 3.5rem 2rem;
-          text-align: center;
-        }
-
-        .hc-hero-glow {
-          position: absolute;
-          top: -60px;
-          left: 50%;
-          transform: translateX(-50%);
-          width: 480px;
-          height: 280px;
-          background: radial-gradient(
-            ellipse at center,
-            rgba(139, 92, 246, 0.25) 0%,
-            transparent 70%
-          );
-          pointer-events: none;
-        }
-
-        .hc-hero-content {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 1rem;
-        }
-
-        .hc-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.4rem;
-          padding: 0.35rem 0.9rem;
-          background: rgba(139, 92, 246, 0.15);
-          border: 1px solid rgba(139, 92, 246, 0.35);
-          border-radius: 999px;
-          font-size: 0.75rem;
-          font-weight: 600;
-          color: #a78bfa;
-          letter-spacing: 0.04em;
-          text-transform: uppercase;
-        }
-
-        .hc-hero-title {
-          font-size: clamp(1.8rem, 4vw, 2.6rem);
-          font-weight: 800;
-          background: linear-gradient(135deg, #e2d9f3 0%, #a78bfa 50%, #60a5fa 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-          margin: 0;
-          line-height: 1.2;
-        }
-
-        .hc-hero-subtitle {
-          color: rgba(203, 213, 225, 0.8);
-          font-size: 1rem;
-          margin: 0;
-          max-width: 480px;
-        }
-
-        /* ── Search ── */
-        .hc-search-wrapper {
-          position: relative;
-          width: 100%;
-          max-width: 580px;
-          margin-top: 0.5rem;
-        }
-
-        .hc-search-icon {
-          position: absolute;
-          left: 1.1rem;
-          top: 50%;
-          transform: translateY(-50%);
-          color: rgba(148, 163, 184, 0.7);
-          pointer-events: none;
-        }
-
-        .hc-search-input {
-          width: 100%;
-          padding: 0.95rem 3rem 0.95rem 3.2rem;
-          background: rgba(15, 23, 42, 0.7);
-          border: 1px solid rgba(139, 92, 246, 0.3);
-          border-radius: 0.9rem;
-          color: #e2e8f0;
-          font-size: 1rem;
-          outline: none;
-          transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
-          box-sizing: border-box;
-          backdrop-filter: blur(8px);
-        }
-
-        .hc-search-input::placeholder {
-          color: rgba(148, 163, 184, 0.5);
-        }
-
-        .hc-search-input:focus {
-          border-color: rgba(139, 92, 246, 0.6);
-          box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.12), 0 4px 24px rgba(139, 92, 246, 0.1);
-          background: rgba(15, 23, 42, 0.9);
-        }
-
-        .hc-search-clear {
-          position: absolute;
-          right: 1rem;
-          top: 50%;
-          transform: translateY(-50%);
-          background: rgba(148, 163, 184, 0.15);
-          border: none;
-          border-radius: 50%;
-          width: 24px;
-          height: 24px;
-          cursor: pointer;
-          color: #94a3b8;
-          font-size: 0.7rem;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: background 0.15s, color 0.15s;
-        }
-
-        .hc-search-clear:hover {
-          background: rgba(239, 68, 68, 0.2);
-          color: #f87171;
-        }
-
-        /* ── Section ── */
-        .hc-section {
-          display: flex;
-          flex-direction: column;
-          gap: 1.25rem;
-        }
-
-        .hc-section-title {
-          font-size: 1.5rem;
-          font-weight: 700;
-          color: #e2e8f0;
-          margin: 0;
-        }
-
-        .hc-section-sub {
-          color: rgba(148, 163, 184, 0.8);
-          font-size: 0.92rem;
-          margin: -0.75rem 0 0;
-        }
-
-        /* ── Category Cards ── */
-        .hc-categories-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 1rem;
-        }
-
-        @media (max-width: 900px) {
-          .hc-categories-grid { grid-template-columns: repeat(2, 1fr); }
-        }
-
-        @media (max-width: 580px) {
-          .hc-categories-grid { grid-template-columns: 1fr; }
-        }
-
-        .hc-cat-card {
-          display: flex;
-          align-items: flex-start;
-          gap: 1rem;
-          padding: 1.3rem 1.2rem;
-          background: rgba(15, 23, 42, 0.6);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 1rem;
-          cursor: pointer;
-          text-align: left;
-          transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s, background 0.2s;
-          position: relative;
-          overflow: hidden;
-        }
-
-        .hc-cat-card::before {
-          content: "";
-          position: absolute;
-          inset: 0;
-          opacity: 0;
-          background: linear-gradient(135deg, rgba(139,92,246,0.06), transparent);
-          transition: opacity 0.2s;
-          border-radius: inherit;
-        }
-
-        .hc-cat-card:hover {
-          transform: translateY(-3px);
-          border-color: rgba(139, 92, 246, 0.3);
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-          background: rgba(15, 23, 42, 0.8);
-        }
-
-        .hc-cat-card:hover::before { opacity: 1; }
-
-        .hc-cat-icon-wrap {
-          flex-shrink: 0;
-          width: 52px;
-          height: 52px;
-          border-radius: 0.85rem;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: #c4b5fd;
-          border: 1px solid rgba(255,255,255,0.07);
-        }
-
-        .hc-cat-body {
-          display: flex;
-          flex-direction: column;
-          gap: 0.25rem;
-          flex: 1;
-        }
-
-        .hc-cat-title {
-          font-size: 0.95rem;
-          font-weight: 700;
-          color: #e2e8f0;
-        }
-
-        .hc-cat-desc {
-          font-size: 0.8rem;
-          color: rgba(148, 163, 184, 0.75);
-          line-height: 1.45;
-        }
-
-        .hc-cat-arrow {
-          flex-shrink: 0;
-          color: rgba(148, 163, 184, 0.4);
-          margin-top: 2px;
-          transition: color 0.2s, transform 0.2s;
-        }
-
-        .hc-cat-card:hover .hc-cat-arrow {
-          color: #a78bfa;
-          transform: translateX(3px);
-        }
-
-        /* ── Accordion ── */
-        .hc-accordion {
-          display: flex;
-          flex-direction: column;
-          gap: 0.6rem;
-        }
-
-        .hc-accordion-item {
-          background: rgba(15, 23, 42, 0.55);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 0.9rem;
-          overflow: hidden;
-          transition: border-color 0.2s, box-shadow 0.2s;
-          animation: hc-fade-in 0.35s ease both;
-        }
-
-        @keyframes hc-fade-in {
-          from { opacity: 0; transform: translateY(8px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-
-        .hc-accordion-item--open {
-          border-color: rgba(139, 92, 246, 0.35);
-          box-shadow: 0 4px 20px rgba(139, 92, 246, 0.08);
-          background: rgba(15, 23, 42, 0.8);
-        }
-
-        .hc-accordion-trigger {
-          width: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 1rem;
-          padding: 1.1rem 1.4rem;
-          background: none;
-          border: none;
-          cursor: pointer;
-          text-align: left;
-          transition: background 0.15s;
-        }
-
-        .hc-accordion-trigger:hover {
-          background: rgba(139, 92, 246, 0.05);
-        }
-
-        .hc-accordion-q {
-          font-size: 0.97rem;
-          font-weight: 600;
-          color: #e2e8f0;
-          flex: 1;
-          line-height: 1.4;
-        }
-
-        .hc-accordion-chevron {
-          flex-shrink: 0;
-          color: #a78bfa;
-          display: flex;
-          align-items: center;
-          transition: transform 0.2s;
-        }
-
-        /* Smooth open/close using grid-template-rows trick */
-        .hc-accordion-panel {
-          display: grid;
-          grid-template-rows: 0fr;
-          transition: grid-template-rows 0.3s ease;
-        }
-
-        .hc-accordion-item--open .hc-accordion-panel {
-          grid-template-rows: 1fr;
-        }
-
-        .hc-accordion-inner {
-          overflow: hidden;
-          min-height: 0;
-        }
-
-        .hc-accordion-answer {
-          color: rgba(148, 163, 184, 0.9);
-          font-size: 0.9rem;
-          line-height: 1.75;
-          padding: 0 1.4rem;
-          margin: 0;
-        }
-
-        .hc-accordion-footer {
-          display: flex;
-          align-items: center;
-          gap: 0.6rem;
-          padding: 0.9rem 1.4rem 1.1rem;
-          border-top: 1px solid rgba(255,255,255,0.04);
-          margin-top: 1rem;
-        }
-
-        .hc-accordion-helpful-label {
-          font-size: 0.78rem;
-          color: rgba(148, 163, 184, 0.5);
-          margin-right: 0.25rem;
-        }
-
-        .hc-helpful-btn {
-          background: rgba(255,255,255,0.05);
-          border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 999px;
-          padding: 0.25rem 0.75rem;
-          font-size: 0.78rem;
-          color: rgba(148, 163, 184, 0.8);
-          cursor: pointer;
-          transition: background 0.15s, border-color 0.15s, color 0.15s;
-        }
-
-        .hc-helpful-btn:hover {
-          background: rgba(139, 92, 246, 0.15);
-          border-color: rgba(139, 92, 246, 0.3);
-          color: #c4b5fd;
-        }
-
-        /* ── No Results ── */
-        .hc-no-results {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 0.75rem;
-          padding: 3rem;
-          text-align: center;
-          background: rgba(15, 23, 42, 0.4);
-          border: 1px dashed rgba(255,255,255,0.08);
-          border-radius: 1rem;
-          color: rgba(148, 163, 184, 0.7);
-          font-size: 0.95rem;
-        }
-
-        .hc-no-results p { margin: 0; }
-
-        .hc-no-results-icon {
-          color: rgba(148, 163, 184, 0.3);
-        }
-
-        .hc-link-btn {
-          background: none;
-          border: none;
-          color: #a78bfa;
-          cursor: pointer;
-          font-size: 0.9rem;
-          text-decoration: underline;
-          padding: 0;
-        }
-
-        /* ── Contact Section ── */
-        .hc-contact-grid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 1.25rem;
-        }
-
-        @media (max-width: 640px) {
-          .hc-contact-grid { grid-template-columns: 1fr; }
-        }
-
-        .hc-contact-card {
-          display: flex;
-          flex-direction: column;
-          gap: 1.25rem;
-          padding: 1.75rem;
-          border-radius: 1.25rem;
-          border: 1px solid;
-          position: relative;
-          overflow: hidden;
-          transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        .hc-contact-card:hover {
-          transform: translateY(-3px);
-          box-shadow: 0 12px 40px rgba(0,0,0,0.35);
-        }
-
-        .hc-contact-card--chat {
-          background: linear-gradient(135deg,
-            rgba(139, 92, 246, 0.12) 0%,
-            rgba(59, 130, 246, 0.07) 100%
-          );
-          border-color: rgba(139, 92, 246, 0.25);
-        }
-
-        .hc-contact-card--email {
-          background: linear-gradient(135deg,
-            rgba(16, 185, 129, 0.10) 0%,
-            rgba(5, 150, 105, 0.06) 100%
-          );
-          border-color: rgba(16, 185, 129, 0.25);
-        }
-
-        .hc-contact-icon-wrap {
-          width: 54px;
-          height: 54px;
-          border-radius: 1rem;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .hc-contact-icon--chat {
-          background: linear-gradient(135deg, rgba(139,92,246,0.3), rgba(59,130,246,0.2));
-          color: #c4b5fd;
-        }
-
-        .hc-contact-icon--email {
-          background: linear-gradient(135deg, rgba(16,185,129,0.3), rgba(5,150,105,0.2));
-          color: #6ee7b7;
-        }
-
-        .hc-contact-body {
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-          flex: 1;
-        }
-
-        .hc-contact-title {
-          font-size: 1.1rem;
-          font-weight: 700;
-          color: #e2e8f0;
-          margin: 0;
-        }
-
-        .hc-contact-desc {
-          font-size: 0.875rem;
-          color: rgba(148, 163, 184, 0.8);
-          line-height: 1.6;
-          margin: 0;
-        }
-
-        .hc-contact-meta {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          margin-top: 0.25rem;
-        }
-
-        .hc-online-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: #34d399;
-          box-shadow: 0 0 6px rgba(52, 211, 153, 0.6);
-          animation: hc-pulse 2s ease-in-out infinite;
-          flex-shrink: 0;
-        }
-
-        @keyframes hc-pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50%       { opacity: 0.6; transform: scale(0.85); }
-        }
-
-        .hc-online-label {
-          font-size: 0.78rem;
-          color: rgba(148, 163, 184, 0.65);
-        }
-
-        .hc-star-icon {
-          color: #fbbf24;
-        }
-
-        .hc-contact-btn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 0.5rem;
-          padding: 0.7rem 1.3rem;
-          border-radius: 0.7rem;
-          font-size: 0.9rem;
-          font-weight: 600;
-          border: none;
-          cursor: pointer;
-          transition: transform 0.15s, box-shadow 0.15s, filter 0.15s;
-          width: fit-content;
-        }
-
-        .hc-contact-btn:hover {
-          transform: translateY(-1px);
-          filter: brightness(1.1);
-        }
-
-        .hc-contact-btn:active { transform: translateY(0); }
-
-        .hc-contact-btn--primary {
-          background: linear-gradient(135deg, #7c3aed, #4f46e5);
-          color: #fff;
-          box-shadow: 0 4px 14px rgba(124, 58, 237, 0.4);
-        }
-
-        .hc-contact-btn--secondary {
-          background: linear-gradient(135deg, #059669, #0d9488);
-          color: #fff;
-          box-shadow: 0 4px 14px rgba(5, 150, 105, 0.4);
-        }
-      `}</style>
     </DashboardLayout>
   );
 }

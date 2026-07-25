@@ -52,8 +52,74 @@ export interface User {
   education?: UserEducation[];
   certifications?: UserCertification[];
   languages?: UserLanguage[];
+  socialLinks?: {
+    github?: string;
+    linkedin?: string;
+    twitter?: string; // used as "X" for company profiles
+    facebook?: string;
+    instagram?: string;
+    website?: string;
+  };
   createdAt: string;
   updatedAt?: string;
+  // Aggregated review stats (computed server-side, present on populated freelancer refs)
+  rating?: number;
+  reviewCount?: number;
+  // Freelancer-only: self-reported availability
+  availability?: "available" | "busy" | "unavailable";
+  // Computed server-side from the Contract collection (present on Saved
+  // Freelancers / freelancer summary responses, not stored on the user doc)
+  completedProjects?: number;
+  successRate?: number;
+
+  // ── Client Company Profile fields ─────────────────────────────────────────
+  companyName?: string;
+  ownerName?: string;
+  phone?: string;
+  website?: string;
+  industry?: string;
+  companySize?: string;
+  country?: string;
+  state?: string;
+  city?: string;
+  address?: string;
+  gstId?: string;
+
+  // ── Settings & Security ─────────────────────────────────────────────────
+  notificationPreferences?: {
+    emailNotifications: boolean;
+    pushNotifications: boolean;
+    emailDigest: "daily" | "weekly" | "monthly" | "never";
+    jobAlerts: boolean;
+    proposalUpdates: boolean;
+    projectUpdates: boolean;
+    paymentUpdates: boolean;
+    messageNotifications: boolean;
+    reviewNotifications: boolean;
+  };
+  privacySettings?: {
+    profileVisibility: "public" | "private" | "connections";
+    showEmail: boolean;
+    showPhone: boolean;
+    allowMessages: boolean;
+    allowInvitations: boolean;
+    showActivityStatus: boolean;
+  };
+  connectedAccounts?: {
+    google?: string | null;
+    github?: string | null;
+  };
+  twoFactorEnabled?: boolean;
+  googleId?: string | null;
+  githubId?: string | null;
+  preferences?: {
+    theme: "light" | "dark" | "system";
+    language: string;
+  };
+  accountDeletionScheduled?: {
+    scheduled: boolean;
+    scheduledFor: string | null;
+  };
 }
 
 export interface AuthCredentials {
@@ -76,12 +142,20 @@ export type JobStatus = "draft" | "open" | "in_progress" | "completed" | "closed
 export type PriceType = "fixed" | "hourly";
 export type WorkType  = "remote" | "hybrid" | "onsite";
 
+export interface JobAttachment {
+  filename: string;
+  url:      string;
+  mimetype: string;
+}
+
 export interface Job {
   id: string;
+  _id?: string;
   title: string;
   company?: string;
   companyLogoUrl?: string;
   category: string;
+  subcategory?: string;
   description: string;
   budgetMin: number;
   budgetMax: number;
@@ -95,6 +169,9 @@ export interface Job {
   clientRating?: number;
   paymentVerified?: boolean;
   deadline?: string;
+  visibility?: "public" | "private";
+  attachments?: JobAttachment[];
+  views?: number;
   // legacy / optional
   rating?: number;
   reviewCount?: number;
@@ -102,12 +179,59 @@ export interface Job {
   status: JobStatus;
   postedAt?: string;
   createdAt?: string;
+  updatedAt?: string;
   proposalsCount?: number;
   client?: {
     id: string;
     fullName: string;
     avatar?: string;
   };
+  // Module 2: Professional Post Job fields
+  englishLevel?: "basic" | "intermediate" | "advanced" | "fluent";
+  freelancersNeeded?: number;
+  currency?: string;
+  estimatedHours?: number;
+  featured?: boolean;
+  urgent?: boolean;
+  allowAIMatching?: boolean;
+  allowMultipleProposals?: boolean;
+  proposalDeadline?: string;
+  projectStartDate?: string;
+  expectedCompletionDate?: string;
+  suggestedBudget?: number;
+  suggestedSkills?: string[];
+  suggestedDescription?: string;
+}
+
+// ==================== JOB CREATE PAYLOAD ====================
+
+export interface JobCreatePayload {
+  title:                 string;
+  category:              string;
+  subcategory?:          string;
+  description:           string;
+  skills:                string[];
+  priceType:             PriceType;
+  budgetMin:             number;
+  budgetMax:             number;
+  experienceLevel:       ExperienceLevel;
+  duration:              string;
+  deadline?:             string;
+  visibility:            "public" | "private";
+  location?:             string;
+  workType?:             WorkType;
+  // Module 2: Professional Post Job fields
+  englishLevel?:         "basic" | "intermediate" | "advanced" | "fluent";
+  freelancersNeeded?:    number;
+  currency?:             string;
+  estimatedHours?:       number;
+  featured?:             boolean;
+  urgent?:               boolean;
+  allowAIMatching?:      boolean;
+  allowMultipleProposals?: boolean;
+  proposalDeadline?:     string;
+  projectStartDate?:     string;
+  expectedCompletionDate?: string;
 }
 
 // ==================== SAVED JOBS ====================
@@ -116,6 +240,28 @@ export interface SavedJobItem {
   savedId: string;
   savedAt: string;
   job:     Job;
+}
+
+// ==================== SAVED FREELANCERS ====================
+
+export interface SavedFreelancerItem {
+  savedId:    string;
+  savedAt:    string;
+  freelancer: User;
+}
+
+// ==================== INVITATIONS ====================
+
+export type InvitationStatus = "pending" | "accepted" | "declined";
+
+export interface Invitation {
+  id:         string;
+  client:     Pick<User, "id" | "fullName" | "avatar" | "companyName"> | string;
+  freelancer: Pick<User, "id" | "fullName" | "avatar"> | string;
+  job:        Pick<Job, "id" | "title" | "budgetMin" | "budgetMax" | "priceType" | "status"> | string;
+  message?:   string;
+  status:     InvitationStatus;
+  createdAt:  string;
 }
 
 // ==================== JOB ALERTS ====================
@@ -160,6 +306,7 @@ export interface Proposal {
   serviceFeePercent: number;
   estimatedDelivery: string;
   milestones: { name: string; amount: number; id?: string; }[];
+  attachments?: JobAttachment[];
   matchScore?: number;
   status: ProposalStatus;
   submittedAt: string;
@@ -261,7 +408,7 @@ export interface ChatMessage {
 
 // ==================== WORKSPACE ====================
 
-export type TaskColumnKey = "todo" | "in_progress" | "review";
+export type TaskColumnKey = "todo" | "in_progress" | "review" | "completed";
 
 export interface WorkspaceTask {
   id: string;
@@ -272,6 +419,7 @@ export interface WorkspaceTask {
   column: TaskColumnKey;
   meta: { icon: "comment" | "attachment" | "eye" | "timer"; value: string; tone?: "default" | "danger" }[];
   assignee?: {
+    id?: string;
     avatar?: string;
     fullName?: string;
   } | null;
@@ -284,8 +432,29 @@ export interface WorkspaceFile {
   name: string;
   size: string;
   updatedAt: string;
+  createdAt?: string;
   thumbnailUrl?: string;
   url?: string;
+  mimetype?: string;
+  uploadedBy?: { id?: string; fullName?: string; avatar?: string } | string | null;
+}
+
+// A single chat message inside a project's workspace. Socket events emit a
+// flattened senderId/senderName/senderAvatar shape; the REST endpoints
+// return a populated Mongoose `sender` object — components normalize both
+// into this shape before rendering.
+export interface WorkspaceMessage {
+  id: string;
+  contractId?: string;
+  contract?: string;
+  sender?: { id?: string; fullName?: string; avatar?: string } | string;
+  senderId?: string;
+  senderName?: string;
+  senderAvatar?: string;
+  content: string;
+  read: boolean;
+  readAt?: string | null;
+  createdAt: string;
 }
 
 export interface WorkspaceFolder {
@@ -361,6 +530,49 @@ export interface FreelancerDashboardStats {
   acceptanceRate: number;
 }
 
+// ── Client dashboard KPIs ────────────────────────────────────────────────────
+export interface ClientRecentJob {
+  _id: string;
+  id?: string;
+  title: string;
+  category: string;
+  status: JobStatus;
+  proposalsCount: number;
+  budgetMin: number;
+  priceType: PriceType;
+  createdAt: string;
+}
+
+export interface ClientActivityItem {
+  id: string;
+  title: string;
+  description: string;
+  createdAt: string;
+  read: boolean;
+}
+
+export interface ClientDashboardStats {
+  // Job counts by status
+  draftJobs:       number;
+  openJobs:        number;
+  inProgressJobs:  number;
+  completedJobs:   number;
+  closedJobs:      number;
+  totalJobs:       number;
+  // Aggregate counts
+  totalProposals:    number;
+  activeProjects:    number;
+  completedProjects: number;
+  // Financials
+  totalSpending:  number;
+  activeSpending: number;
+  // Messaging
+  unreadMessages: number;
+  // Recent data
+  recentJobs:     ClientRecentJob[];
+  recentActivity: ClientActivityItem[];
+}
+
 // ==================== ADMIN ====================
 
 export interface AdminUserRow {
@@ -400,6 +612,7 @@ export interface AiChatMessage {
   role: "user" | "assistant";
   content: string;
   createdAt: string;
+  attachments?: { filename: string; mimetype?: string; extractedText?: string }[];
 }
 
 export interface AiQuickAction {
@@ -409,9 +622,40 @@ export interface AiQuickAction {
   icon: string;
 }
 
+/** Real multi-chat AI Assistant — one document per named conversation. */
+export interface AiChatSummary {
+  id: string;
+  title: string;
+  context: string;
+  pinned: boolean;
+  lastMessageAt: string;
+  createdAt: string;
+  messageCount: number;
+  preview: string;
+}
+
+export interface AiChat {
+  id: string;
+  userId: string;
+  title: string;
+  context: string;
+  pinned: boolean;
+  lastMessageAt: string;
+  createdAt: string;
+  messages: AiChatMessage[];
+}
+
+export interface AiChatSearchResult {
+  id: string;
+  title: string;
+  context: string;
+  lastMessageAt: string;
+  snippet: string;
+}
+
 // ==================== CONTRACTS ====================
 
-export type ContractStatus = "pending" | "active" | "completed" | "cancelled" | "disputed";
+export type ContractStatus = "pending" | "active" | "submitted" | "completed" | "cancelled" | "disputed";
 export type EscrowStatus = "none" | "funded" | "released" | "refunded";
 
 export interface Contract {
@@ -463,6 +707,27 @@ export interface WorkspaceMilestone {
   updatedAt: string;
 }
 
+// Lightweight contract reference attached to cross-project list items
+// (my-milestones / my-files) — a subset of Contract, not the full document.
+export interface WorkspaceContractRef {
+  id: string;
+  title: string;
+  status: ContractStatus;
+  client?: { id: string; fullName: string; avatar?: string };
+  freelancer?: { id: string; fullName: string; avatar?: string };
+  job?: string;
+}
+
+export interface MyMilestoneItem {
+  milestone: WorkspaceMilestone;
+  contract: WorkspaceContractRef | null;
+}
+
+export interface MyFileItem {
+  file: WorkspaceFile;
+  contract: Pick<WorkspaceContractRef, "id" | "title"> | null;
+}
+
 export interface WorkspaceDeliverable {
   id: string;
   contract: string;
@@ -491,4 +756,74 @@ export interface WorkspaceTimeLog {
   status: "logged" | "billed" | "paid";
   createdAt: string;
   updatedAt: string;
+}
+
+export interface WorkspaceRecord {
+  id: string;
+  contract: string;
+  job: string;
+  client: string;
+  freelancer: string;
+  status: "active" | "completed" | "cancelled";
+  dueDate?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkspaceActivityItem {
+  id: string;
+  contract: string;
+  actor?: { id?: string; fullName?: string; avatar?: string } | null;
+  action: string;
+  message: string;
+  createdAt: string;
+}
+
+export interface WorkspaceMilestonesSummary {
+  total: number;
+  completed: number;
+  inProgress: number;
+  submitted: number;
+}
+
+export interface WorkspaceOverview {
+  contract: Contract;
+  workspace: WorkspaceRecord | null;
+  dueDate: string | null;
+  progress: number;
+  milestonesSummary: WorkspaceMilestonesSummary;
+  deliverablesCount: number;
+  filesCount: number;
+  recentActivity: WorkspaceActivityItem[];
+}
+
+// ==================== PROJECT SUBMISSION ====================
+
+export type ProjectSubmissionStatus = "pending" | "approved" | "revision_requested";
+
+export interface ProjectSubmissionFile {
+  name: string;
+  url: string;
+  mimetype?: string;
+  size?: string;
+}
+
+export interface ProjectSubmission {
+  id: string;
+  contract: string;
+  freelancer: string;
+  client: string;
+  notes: string;
+  links: string[];
+  files: ProjectSubmissionFile[];
+  status: ProjectSubmissionStatus;
+  clientFeedback: string;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubmittedProjectItem {
+  contract: Contract;
+  submission: ProjectSubmission | null;
 }

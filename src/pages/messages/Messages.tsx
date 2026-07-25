@@ -1,23 +1,32 @@
 import { useState } from "react";
-import { Video, Phone, Search, MoreVertical, Pin, Smile, Paperclip, Mic, Send, X, Loader2 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Video, Phone, Search, MoreVertical, Pin, Smile, Paperclip, Mic, Send, X, Loader2, MessageSquarePlus } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Avatar } from "@/components/ui/Avatar";
+import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/context/AuthContext";
 import { CLIENT_NAV, FREELANCER_NAV } from "@/constants/nav";
 import { cn } from "@/utils/cn";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { messageService } from "@/services/message.service";
+import { contractService } from "@/services/contract.service";
 import { useNotification } from "@/context/NotificationContext";
+import type { Contract } from "@/types";
 
 export default function Messages() {
   const { user } = useAuth();
   const navItems = user?.role === "client" ? CLIENT_NAV : FREELANCER_NAV;
   const queryClient = useQueryClient();
   const { notify } = useNotification();
+  const [searchParams] = useSearchParams();
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showPinned, setShowPinned] = useState(true);
   const [draft, setDraft] = useState("");
+  const [showNewMessageModal, setShowNewMessageModal] = useState(false);
+  // A partner picked from the "New Message" contact picker — same shape/role
+  // as the ?to= deep-link partner below, just chosen from inside the page.
+  const [pickedPartner, setPickedPartner] = useState<{ id: string; name: string; avatar?: string } | null>(null);
 
   // 1. Fetch conversations
   const { data: conversationsResponse, isLoading: loadingConversations } = useQuery({
@@ -28,12 +37,74 @@ export default function Messages() {
     },
   });
 
-  const conversations = conversationsResponse?.data || [];
+  const fetchedConversations = conversationsResponse?.data || [];
 
-  // Automatically select first conversation if none selected
-  if (!activeId && conversations.length > 0) {
+  // People the user actually has a working relationship with (contract
+  // partners) — used to power "New Message" when there's no existing
+  // conversation and no deep link to jump in from.
+  const { data: contractsResponse } = useQuery({
+    queryKey: ["contracts", "all"],
+    queryFn: async () => (await contractService.list()).data,
+  });
+  const allContracts: Contract[] = (contractsResponse as any)?.data || [];
+  const isClient = user?.role === "client";
+  const contacts = (() => {
+    const map = new Map<string, { id: string; name: string; avatar?: string }>();
+    allContracts.forEach((c: any) => {
+      const partner = isClient ? c.freelancer : c.client;
+      const partnerId = partner?.id || partner?._id;
+      if (partnerId && !map.has(partnerId)) {
+        map.set(partnerId, { id: partnerId, name: partner.fullName, avatar: partner.avatar });
+      }
+    });
+    return Array.from(map.values());
+  })();
+
+  // ── Deep-link support: /messages?to=<userId>&name=..&avatar=..
+  // Lets other pages (e.g. Proposals) jump straight into a chat with a specific
+  // user, even before any message has ever been sent between the two of them.
+  // A partner picked from the in-page "New Message" picker works the same way.
+  const myId = user?.id || user?._id || "";
+  const toParam = searchParams.get("to");
+  const newPartner = toParam
+    ? { id: toParam, name: searchParams.get("name") || "New Conversation", avatar: searchParams.get("avatar") || undefined }
+    : pickedPartner;
+  const virtualConversationId = newPartner ? [myId, newPartner.id].sort().join("-") : null;
+
+  const conversations = (() => {
+    if (!virtualConversationId || !newPartner) return fetchedConversations;
+    if (fetchedConversations.some((c) => c.id === virtualConversationId)) return fetchedConversations;
+    return [
+      {
+        id: virtualConversationId,
+        partnerName: newPartner.name,
+        partnerAvatar: newPartner.avatar,
+        partnerId: newPartner.id,
+        lastMessage: "",
+        timestamp: new Date().toISOString(),
+        unreadCount: 0,
+      },
+      ...fetchedConversations,
+    ];
+  })();
+
+  // Automatically select the deep-linked partner, else the first conversation
+  if (!activeId && virtualConversationId) {
+    setActiveId(virtualConversationId);
+  } else if (!activeId && conversations.length > 0) {
     setActiveId(conversations[0].id);
   }
+
+  const startConversationWith = (contact: { id: string; name: string; avatar?: string }) => {
+    setPickedPartner(contact);
+    setActiveId([myId, contact.id].sort().join("-"));
+    setShowNewMessageModal(false);
+  };
+
+  // Contacts not already reachable via an existing conversation thread.
+  const newMessageCandidates = contacts.filter(
+    (c) => !fetchedConversations.some((conv) => conv.partnerId === c.id)
+  );
 
   const activeConversation = conversations.find((c) => c.id === activeId);
 
@@ -60,8 +131,8 @@ export default function Messages() {
       queryClient.invalidateQueries({ queryKey: ["messages", activeId] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
-    onError: () => {
-      notify("Failed to send message", "error");
+    onError: (err: any) => {
+      notify(err.response?.data?.message || err.message || "Failed to send message.", "error");
     },
   });
 
@@ -76,7 +147,7 @@ export default function Messages() {
       <div className="flex h-full">
         {/* Conversation list */}
         <div className="flex w-80 shrink-0 flex-col border-r border-surface-border">
-          <div className="p-4">
+          <div className="space-y-3 p-4">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
               <input
@@ -84,6 +155,13 @@ export default function Messages() {
                 className="h-11 w-full rounded-xl border border-surface-border bg-surface-muted pl-10 pr-3 text-sm outline-none"
               />
             </div>
+            <button
+              onClick={() => setShowNewMessageModal(true)}
+              className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-brand-600 text-sm font-bold text-white hover:bg-brand-700 transition-colors"
+            >
+              <MessageSquarePlus className="h-4 w-4" />
+              New Message
+            </button>
           </div>
           <div className="flex-1 overflow-y-auto scrollbar-thin px-2">
             <p className="px-2 pb-2 pt-1 text-xs font-bold uppercase tracking-wide text-ink-400">Direct Messages</p>
@@ -92,7 +170,17 @@ export default function Messages() {
                 <Loader2 className="h-6 w-6 animate-spin text-brand-600" />
               </div>
             ) : conversations.length === 0 ? (
-              <p className="px-2 text-sm text-ink-400">No conversations yet.</p>
+              <div className="px-2 py-4 text-center">
+                <p className="text-sm text-ink-400">No conversations yet.</p>
+                {contacts.length > 0 && (
+                  <button
+                    onClick={() => setShowNewMessageModal(true)}
+                    className="mt-2 text-sm font-bold text-brand-600 hover:underline"
+                  >
+                    Start a conversation
+                  </button>
+                )}
+              </div>
             ) : (
               conversations.map((c) => (
                 <button
@@ -165,18 +253,18 @@ export default function Messages() {
                           {m.content}
                         </div>
                         <span className="text-[10px] font-semibold uppercase text-ink-400">
-                          {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
                     ) : (
                       <div key={m.id} className="flex gap-3">
-                        <Avatar src={m.senderAvatarUrl} name={m.senderName} size="sm" className="mt-1" />
+                        <Avatar src={m.senderAvatar} name={m.senderName} size="sm" className="mt-1" />
                         <div className="flex flex-col gap-1">
                           <div className="max-w-md rounded-2xl rounded-tl-sm bg-surface-muted px-4 py-3 text-sm text-ink-900">
                             {m.content}
                           </div>
                           <span className="text-[10px] font-semibold uppercase text-ink-400">
-                            {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
                       </div>
@@ -221,12 +309,44 @@ export default function Messages() {
               </form>
             </>
           ) : (
-            <div className="flex flex-1 items-center justify-center text-ink-400">
-              Select a conversation to start messaging.
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-ink-400">
+              <p>Select a conversation to start messaging.</p>
+              {contacts.length > 0 && (
+                <button
+                  onClick={() => setShowNewMessageModal(true)}
+                  className="flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white hover:bg-brand-700 transition-colors"
+                >
+                  <MessageSquarePlus className="h-4 w-4" />
+                  New Message
+                </button>
+              )}
             </div>
           )}
         </div>
       </div>
+
+      <Modal isOpen={showNewMessageModal} onClose={() => setShowNewMessageModal(false)} title="New Message">
+        {newMessageCandidates.length === 0 && contacts.length === 0 ? (
+          <p className="py-6 text-center text-sm text-ink-500">
+            {isClient
+              ? "You'll be able to message a freelancer once you've hired them for a job."
+              : "You'll be able to message a client once they've hired you for a job."}
+          </p>
+        ) : (
+          <div className="max-h-96 space-y-1 overflow-y-auto">
+            {(newMessageCandidates.length > 0 ? newMessageCandidates : contacts).map((c) => (
+              <button
+                key={c.id}
+                onClick={() => startConversationWith(c)}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-surface-muted transition-colors"
+              >
+                <Avatar src={c.avatar} name={c.name} size="md" />
+                <p className="text-sm font-semibold text-ink-900">{c.name}</p>
+              </button>
+            ))}
+          </div>
+        )}
+      </Modal>
     </DashboardLayout>
   );
 }

@@ -4,6 +4,9 @@ import Job from "../models/Job.js";
 import User from "../models/User.js";
 import WorkspaceTask from "../models/WorkspaceTask.js";
 import Milestone from "../models/Milestone.js";
+import Earning from "../models/Earning.js";
+import { ensureWorkspaceForContract } from "../services/workspaceService.js";
+import { notifyUser } from "../services/notificationService.js";
 
 export const createContract = async (req, res, next) => {
   try {
@@ -17,6 +20,10 @@ export const createContract = async (req, res, next) => {
     const job = proposal.job;
     if (job.client.toString() !== req.user.id && req.user.role !== "admin") {
       return res.status(403).json({ success: false, message: "Not authorized to hire for this job." });
+    }
+
+    if (proposal.status === "accepted") {
+      return res.status(400).json({ success: false, message: "This proposal has already been accepted." });
     }
 
     // Set proposal status to accepted
@@ -37,6 +44,53 @@ export const createContract = async (req, res, next) => {
       budget: proposal.bidAmount,
       status: "active",
       escrowStatus: "funded",
+    });
+
+    // Create Milestones from proposal details if present
+    if (proposal.milestones && proposal.milestones.length > 0) {
+      const milestoneDocs = proposal.milestones.map((m, idx) => ({
+        contract: contract._id,
+        title: m.name,
+        budget: m.amount,
+        dueDate: new Date(Date.now() + (idx + 1) * 7 * 24 * 60 * 60 * 1000),
+        status: idx === 0 ? "in_progress" : "pending",
+        progress: 0,
+      }));
+      await Milestone.create(milestoneDocs);
+    } else {
+      await Milestone.create({
+        contract: contract._id,
+        title: "Project Initiation & Setup",
+        budget: contract.budget,
+        dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+        status: "in_progress",
+        progress: 0,
+      });
+    }
+
+    // Create earning record so the freelancer's Earnings dashboard reflects
+    // the pending/expected income for this newly accepted project.
+    await Earning.create({
+      freelancer: proposal.freelancer,
+      contract: contract._id,
+      job: job._id,
+      client: job.client,
+      amount: contract.budget,
+      status: "in_escrow",
+      description: `Earning for: ${job.title}`,
+    });
+
+    // Every accepted proposal becomes an Active Project, so it always gets a
+    // linked Workspace to store its tasks/files/milestones/activity in Mongo.
+    await ensureWorkspaceForContract(contract);
+
+    await notifyUser({
+      io: req.app.get("io"),
+      recipient: proposal.freelancer,
+      title: "Proposal accepted!",
+      message: `Your proposal for "${job.title}" was accepted. The project has started.`,
+      type: "project",
+      link: `/workspace/${contract._id}`,
     });
 
     res.status(201).json({ success: true, data: contract, message: "Contract successfully created and escrow funded." });
@@ -189,6 +243,20 @@ export const updateStatus = async (req, res, next) => {
     }
 
     await contract.save();
+
+    if (status === "completed") {
+      const otherPartyId =
+        contract.client.toString() === req.user.id ? contract.freelancer : contract.client;
+      await notifyUser({
+        io: req.app.get("io"),
+        recipient: otherPartyId,
+        title: "Project completed",
+        message: `"${contract.title}" has been marked completed.`,
+        type: "project",
+        link: `/workspace/${contract._id}?tab=Overview`,
+      });
+    }
+
     res.status(200).json({ success: true, data: contract, message: "Contract status updated successfully." });
   } catch (error) {
     next(error);
