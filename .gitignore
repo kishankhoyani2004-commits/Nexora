@@ -23,7 +23,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-src/components/layout/DashboardSidebar.tsx
 
 # Environment Variables
 .env

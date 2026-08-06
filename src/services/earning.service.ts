@@ -8,7 +8,7 @@ export interface Earning {
   job: { id: string; title: string; budget?: number } | string;
   client: { id: string; fullName: string; avatar?: string } | string;
   amount: number;
-  status: "pending" | "in_escrow" | "released" | "withdrawn";
+  status: "pending" | "in_escrow" | "released" | "withdrawn" | "refunded";
   description?: string;
   createdAt: string;
   updatedAt?: string;

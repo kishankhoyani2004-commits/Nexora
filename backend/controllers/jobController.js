@@ -1,5 +1,6 @@
 import Job from "../models/Job.js";
 import SavedJob from "../models/SavedJob.js";
+import { CATEGORY_TAXONOMY, categoryRegex } from "../utils/categoryTaxonomy.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 const SORT_MAP = {
@@ -46,7 +47,14 @@ export const list = async (req, res, next) => {
     }
 
     // ── Scalar filters ────────────────────────────────────────────────────────
-    if (category)  query.category    = { $regex: category, $options: "i" };
+    // `category` accepts either a raw free-text value (regex substring match,
+    // for legacy callers) or one of our canonical taxonomy slugs (e.g.
+    // "web-development") — matched against every raw category string it
+    // normalizes, so it stays consistent with /api/public/categories' counts.
+    if (category) {
+      const taxon = CATEGORY_TAXONOMY.find((c) => c.slug === category);
+      query.category = taxon ? categoryRegex(taxon.matchers) : { $regex: category, $options: "i" };
+    }
     if (location)  query.location    = { $regex: location, $options: "i" };
     if (workType)  query.workType    = workType;
     if (priceType) query.priceType   = priceType;

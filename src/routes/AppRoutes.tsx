@@ -9,6 +9,10 @@ const Landing = lazy(() => import("@/pages/Landing"));
 const Login = lazy(() => import("@/pages/auth/Login"));
 const Signup = lazy(() => import("@/pages/auth/Signup"));
 const ForgotPassword = lazy(() => import("@/pages/auth/ForgotPassword"));
+const FindTalent = lazy(() => import("@/pages/FindTalent"));
+const FindWork = lazy(() => import("@/pages/FindWork"));
+const Categories = lazy(() => import("@/pages/Categories"));
+const Pricing = lazy(() => import("@/pages/Pricing"));
 
 // Client pages
 const ClientDashboard = lazy(() => import("@/pages/client/ClientDashboard"));
@@ -91,6 +95,10 @@ export function AppRoutes() {
         <Route path={ROUTES.LOGIN} element={<Login />} />
         <Route path={ROUTES.SIGNUP} element={<Signup />} />
         <Route path={ROUTES.FORGOT_PASSWORD} element={<ForgotPassword />} />
+        <Route path={ROUTES.FIND_TALENT} element={<FindTalent />} />
+        <Route path={ROUTES.FIND_WORK} element={<FindWork />} />
+        <Route path={ROUTES.CATEGORIES} element={<Categories />} />
+        <Route path={ROUTES.PRICING} element={<Pricing />} />
 
 
 

@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/context/ThemeContext";
 import { NotificationProvider } from "@/context/NotificationContext";
 import { ConfirmProvider } from "@/context/ConfirmContext";
 import { ToastContainer } from "@/components/common/ToastContainer";
+import { ScrollToTop } from "@/components/common/ScrollToTop";
 import { AppRoutes } from "@/routes/AppRoutes";
 
 const queryClient = new QueryClient({
@@ -25,6 +26,7 @@ function App() {
           <NotificationProvider>
             <ConfirmProvider>
               <BrowserRouter>
+                <ScrollToTop />
                 <AppRoutes />
                 <ToastContainer />
               </BrowserRouter>

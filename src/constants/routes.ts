@@ -5,6 +5,11 @@ export const ROUTES = {
   FORGOT_PASSWORD: "/forgot-password",
   ROLE_SELECT: "/role-select",
 
+  FIND_TALENT: "/find-talent",
+  FIND_WORK: "/find-work",
+  CATEGORIES: "/categories",
+  PRICING: "/pricing",
+
   CLIENT_DASHBOARD: "/client/dashboard",
   CLIENT_ACTIVITY:     "/client/activity",
   CLIENT_ANALYTICS: "/client/analytics",

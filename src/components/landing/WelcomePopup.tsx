@@ -63,8 +63,14 @@ export function WelcomePopup({
 
   return (
     <AnimatePresence>
+      {/* z-30 sits BELOW the sticky PublicNavbar (z-40) on purpose: this is a
+          soft onboarding prompt, not a blocking dialog, so the header must stay
+          clickable behind it — otherwise the full-screen backdrop swallows every
+          nav click and "Find Work"/"Find Talent" appear broken. Navigating away
+          unmounts Landing, which dismisses this popup. The real auth modal stays
+          at z-50 and remains fully blocking. */}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-30 flex items-center justify-center p-4">
           {/* Backdrop — clicking it closes the popup */}
           <motion.div
             initial={{ opacity: 0 }}

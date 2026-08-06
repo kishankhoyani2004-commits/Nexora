@@ -6,10 +6,10 @@ import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ROUTES } from "@/constants/routes";
 
 const LINKS = [
-  { label: "Find Talent", href: "#hero", icon: Users },
-  { label: "Find Work", href: "#process", icon: Briefcase },
-  { label: "Categories", href: "#categories", icon: LayoutGrid },
-  { label: "Pricing", href: "#pricing", icon: Tag },
+  { label: "Find Talent", href: ROUTES.FIND_TALENT, icon: Users },
+  { label: "Find Work", href: ROUTES.FIND_WORK, icon: Briefcase },
+  { label: "Categories", href: ROUTES.CATEGORIES, icon: LayoutGrid },
+  { label: "Pricing", href: ROUTES.PRICING, icon: Tag },
 ];
 
 interface PublicNavbarProps {
@@ -23,15 +23,15 @@ export function PublicNavbar({ onLoginClick }: PublicNavbarProps) {
         <Logo />
         <nav className="hidden items-center gap-1 md:flex">
           {LINKS.map((link) => (
-            <a
+            <Link
               key={link.label}
-              href={link.href}
+              to={link.href}
               className="group relative flex items-center gap-1.5 rounded-full px-3.5 py-2 text-sm font-semibold text-ink-500 transition-colors duration-200 hover:text-brand-600"
             >
               <link.icon className="h-3.5 w-3.5 text-ink-400 transition-colors duration-200 group-hover:text-brand-500" />
               {link.label}
               <span className="pointer-events-none absolute inset-x-3 -bottom-0.5 h-0.5 scale-x-0 rounded-full bg-gradient-to-r from-brand-500 to-brand-secondary transition-transform duration-200 group-hover:scale-x-100" />
-            </a>
+            </Link>
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-3">

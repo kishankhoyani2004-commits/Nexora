@@ -34,6 +34,7 @@ import settingsRoutes from "./routes/settingsRoutes.js";
 import withdrawalRoutes from "./routes/withdrawalRoutes.js";
 import invoiceRoutes from "./routes/invoiceRoutes.js";
 import billingRoutes from "./routes/billingRoutes.js";
+import publicRoutes from "./routes/publicRoutes.js";
 
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 
@@ -129,6 +130,7 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/withdrawals", withdrawalRoutes);
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api/billing", billingRoutes);
+app.use("/api/public", publicRoutes);
 
 // Test endpoint
 app.get("/", (req, res) => {
