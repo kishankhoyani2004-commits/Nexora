@@ -250,6 +250,33 @@ function freelancerFallback(prompt, promptLower, systemInstruction) {
   const contracts = parseContractLines(extractSection(snapshot, "YOUR PROJECTS:"));
   const openJobs = parseOpenJobLines(extractSection(snapshot, "OPEN JOBS MATCHING YOUR SKILLS:"));
 
+  // ── Proposal generation/improvement checked FIRST, ahead of the generic
+  // single-word checks below (bid/deliver/match/etc.). These prompts embed
+  // a job's raw description verbatim, and job postings routinely contain
+  // incidental words like "deliver" (e.g. "Deliver production-ready work…")
+  // that would otherwise hijack intent detection before it ever reaches the
+  // "proposal" branch — silently answering the wrong question. The
+  // "improve/rewrite" check must run before the "cover letter" check below:
+  // improveProposalText's own prompt text ("Improve this ... proposal cover
+  // letter") contains "cover letter" too, so checking that first would
+  // misfire as "write a brand new proposal" instead of "improve this one".
+  if (promptLower.includes("proposal") && (promptLower.includes("improve") || promptLower.includes("rewrite") || promptLower.includes("better"))) {
+    return `Paste your current proposal draft and I'll rewrite it to be more persuasive, specific, and professional — tightening the opening, sharpening how you highlight relevant skills, and strengthening the call to action.`;
+  }
+
+  if (promptLower.includes("cover letter") || (promptLower.includes("proposal") && (promptLower.includes("write") || promptLower.includes("draft") || promptLower.includes("generate")))) {
+    let matchedTitle = null;
+    const titleMatch = prompt.match(/applying (?:for|to) (?:this|the) job:\s*"([^"]+)"/i) || prompt.match(/job:\s*"([^"]+)"/i);
+    if (titleMatch && titleMatch[1]) matchedTitle = titleMatch[1];
+
+    if (!matchedTitle && openJobs.length === 0) {
+      return `Happy to help you write a winning proposal — which job is it for? Paste the title and description (or link me to it) and I'll draft a personalized cover letter using your actual skills and experience.`;
+    }
+
+    const title = matchedTitle || openJobs[0].title;
+    return `Here's a draft proposal for "${title}":\n\nDear Client,\n\nI'd love to help with "${title}". Based on my experience and skill set, I can deliver a clean, well-tested solution that matches exactly what you're looking for.\n\n**Why I'm a good fit:**\n- Direct experience with the core skills this project needs\n- Clear, proactive communication throughout\n- A track record of delivering on scope and on time\n\n**My approach:**\n1. Kick off with a quick scoping call to confirm requirements\n2. Build in clear milestones so you always know where things stand\n3. Deliver, test, and polish before handoff\n\nWould love to jump on a quick call to discuss further.\n\nBest regards`;
+  }
+
   if (promptLower.includes("match") || (promptLower.includes("job") && (promptLower.includes("best") || promptLower.includes("fit")))) {
     if (openJobs.length === 0) {
       return `I don't see any open jobs matching your listed skills right now — try broadening your profile skills, or ask me to analyze a specific job you've found.`;
@@ -263,6 +290,23 @@ function freelancerFallback(prompt, promptLower, systemInstruction) {
   }
 
   if (promptLower.includes("bid") || (promptLower.includes("budget") && promptLower.includes("charge"))) {
+    // estimateBidAmount's prompt embeds the specific job's own budget range
+    // directly (e.g. "Job budget range: ₹15000-₹25000 (fixed)") and asks for
+    // a JSON reply — return matching real JSON here instead of a prose
+    // sentence, or generateJSON's caller silently gets `{ suggestedBid:
+    // undefined }` and the estimate UI renders blank.
+    if (promptLower.includes("respond as json") || promptLower.includes("suggestedbid")) {
+      const range = prompt.match(/₹\s*([\d,]+)\s*-\s*₹?\s*([\d,]+)/);
+      const min = range ? parseInt(range[1].replace(/,/g, ""), 10) : null;
+      const max = range ? parseInt(range[2].replace(/,/g, ""), 10) : null;
+      const suggestedBid = min && max ? Math.round((min + max) / 2) : null;
+      return JSON.stringify({
+        suggestedBid,
+        reasoning: suggestedBid
+          ? `Bidding near the midpoint of the posted budget range is competitive without underpricing your work.`
+          : `Could not read a budget range from this job to base an estimate on.`,
+      });
+    }
     if (openJobs.length > 0) {
       const j = openJobs[0];
       const mid = Math.round((j.min + j.max) / 2);
@@ -272,24 +316,19 @@ function freelancerFallback(prompt, promptLower, systemInstruction) {
   }
 
   if (promptLower.includes("deliver")) {
-    return `Tell me the project's scope (or paste the job description) and I'll suggest a realistic delivery timeframe — one that's fast enough to be competitive but doesn't box you into an unrealistic deadline.`;
-  }
-
-  if (promptLower.includes("proposal") && (promptLower.includes("improve") || promptLower.includes("rewrite") || promptLower.includes("better"))) {
-    return `Paste your current proposal draft and I'll rewrite it to be more persuasive, specific, and professional — tightening the opening, sharpening how you highlight relevant skills, and strengthening the call to action.`;
-  }
-
-  if (promptLower.includes("proposal")) {
-    let matchedTitle = null;
-    const titleMatch = prompt.match(/applying for the job:\s*"([^"]+)"/i) || prompt.match(/job:\s*"([^"]+)"/i);
-    if (titleMatch && titleMatch[1]) matchedTitle = titleMatch[1];
-
-    if (!matchedTitle && openJobs.length === 0) {
-      return `Happy to help you write a winning proposal — which job is it for? Paste the title and description (or link me to it) and I'll draft a personalized cover letter using your actual skills and experience.`;
+    // Same reasoning as the bid branch above: estimateDeliveryTime's prompt
+    // embeds the job's own duration hint and asks for JSON.
+    if (promptLower.includes("respond as json") || promptLower.includes("estimateddelivery")) {
+      const hintMatch = prompt.match(/duration hint:\s*"([^"]*)"/i);
+      const hint = hintMatch && hintMatch[1] ? hintMatch[1] : null;
+      return JSON.stringify({
+        estimatedDelivery: hint || "1-2 weeks",
+        reasoning: hint
+          ? `Based on the project's own stated duration.`
+          : `No duration was specified, so this is a general estimate for a typical project of this size.`,
+      });
     }
-
-    const title = matchedTitle || openJobs[0].title;
-    return `Here's a draft proposal for "${title}":\n\nDear Client,\n\nI'd love to help with "${title}". Based on my experience and skill set, I can deliver a clean, well-tested solution that matches exactly what you're looking for.\n\n**Why I'm a good fit:**\n- Direct experience with the core skills this project needs\n- Clear, proactive communication throughout\n- A track record of delivering on scope and on time\n\n**My approach:**\n1. Kick off with a quick scoping call to confirm requirements\n2. Build in clear milestones so you always know where things stand\n3. Deliver, test, and polish before handoff\n\nWould love to jump on a quick call to discuss further.\n\nBest regards`;
+    return `Tell me the project's scope (or paste the job description) and I'll suggest a realistic delivery timeframe — one that's fast enough to be competitive but doesn't box you into an unrealistic deadline.`;
   }
 
   if (promptLower.includes("job description") || promptLower.includes("analyze")) {
@@ -339,65 +378,73 @@ function freelancerFallback(prompt, promptLower, systemInstruction) {
   return `I'm here to help you find work and succeed as a freelancer on Nexora — writing and improving proposals, analyzing jobs, checking your match score, planning delivery timelines, improving your profile, and more. What would you like help with?`;
 }
 
+// ── Offline fallback — role-scoped and grounded in the real live-data
+// snapshot embedded in systemInstruction, never a generic canned template.
+// Greetings are handled first so "hi"/"hello" never falls through to a
+// tool-specific branch. Used both when no GEMINI_API_KEY is configured and
+// as the runtime recovery path when a live Gemini call fails (quota limit,
+// timeout, transient network error) — see the catch block below. ───────────
+function offlineFallback(prompt, systemInstruction) {
+  const role = detectRole(systemInstruction);
+  const name = extractName(systemInstruction);
+
+  if (isGreeting(prompt)) {
+    return greetingReply(role === "client" ? "client" : "freelancer", name);
+  }
+
+  if (role === "client") {
+    return clientFallback(prompt, prompt.toLowerCase(), systemInstruction);
+  }
+
+  if (role === "freelancer") {
+    return freelancerFallback(prompt, prompt.toLowerCase(), systemInstruction);
+  }
+
+  // No role context (legacy unscoped callers) — keep a neutral, warm default.
+  const promptLower = prompt.toLowerCase();
+  if (isCodingQuestion(promptLower)) {
+    return `Happy to help with that. Could you share the specific code, error, or what you're trying to build?`;
+  }
+  return `Hi! I'm Nexora AI. I can help with proposals, job descriptions, hiring, and managing your freelance projects. What would you like help with?`;
+}
+
 export const generateText = async (prompt, systemInstruction = "", history = []) => {
+  if (!aiInstance) return offlineFallback(prompt, systemInstruction);
+
   try {
-    if (aiInstance) {
-      const cleanInstruction = (systemInstruction || "You are Nexora AI, a professional freelance assistant.") + 
-        " IMPORTANT: Do not output raw markdown headers like ### or nested formatting markers like ***. Use clean CAPITALIZED text headers instead.";
+    const cleanInstruction = (systemInstruction || "You are Nexora AI, a professional freelance assistant.") +
+      " IMPORTANT: Do not output raw markdown headers like ### or nested formatting markers like ***. Use clean CAPITALIZED text headers instead.";
 
-      const model = aiInstance.getGenerativeModel({
-        model: "gemini-flash-latest",
-        systemInstruction: cleanInstruction,
-      });
+    const model = aiInstance.getGenerativeModel({
+      model: "gemini-flash-latest",
+      systemInstruction: cleanInstruction,
+    });
 
-      // Filter and format history to ensure correct Gemini format: { role: 'user'|'model', parts: [{ text: string }] }
-      const formattedHistory = history.map(h => ({
-        role: h.role === "assistant" || h.role === "model" ? "model" : "user",
-        parts: [{ text: h.content || h.parts?.[0]?.text || "" }]
-      }));
+    // Filter and format history to ensure correct Gemini format: { role: 'user'|'model', parts: [{ text: string }] }
+    const formattedHistory = history.map(h => ({
+      role: h.role === "assistant" || h.role === "model" ? "model" : "user",
+      parts: [{ text: h.content || h.parts?.[0]?.text || "" }]
+    }));
 
-      const chat = model.startChat({
-        history: formattedHistory,
-      });
+    const chat = model.startChat({
+      history: formattedHistory,
+    });
 
-      const result = await chat.sendMessage(prompt);
-      const response = await result.response;
-      const rawText = response.text();
-      
-      // Post-process response to ensure no leaked raw tags
-      return rawText
-        .replace(/###/g, "")
-        .replace(/\*\*\*/g, "")
-        .replace(/##/g, "");
-    }
+    const result = await chat.sendMessage(prompt);
+    const response = await result.response;
+    const rawText = response.text();
 
-    // ── Offline fallback (no GEMINI_API_KEY) — role-scoped and grounded in
-    // the real live-data snapshot embedded in systemInstruction, never a
-    // generic canned template. Greetings are handled first so "hi"/"hello"
-    // never falls through to a tool-specific branch. ─────────────────────────
-    const role = detectRole(systemInstruction);
-    const name = extractName(systemInstruction);
-
-    if (isGreeting(prompt)) {
-      return greetingReply(role === "client" ? "client" : "freelancer", name);
-    }
-
-    if (role === "client") {
-      return clientFallback(prompt, prompt.toLowerCase(), systemInstruction);
-    }
-
-    if (role === "freelancer") {
-      return freelancerFallback(prompt, prompt.toLowerCase(), systemInstruction);
-    }
-
-    // No role context (legacy unscoped callers) — keep a neutral, warm default.
-    const promptLower = prompt.toLowerCase();
-    if (isCodingQuestion(promptLower)) {
-      return `Happy to help with that. Could you share the specific code, error, or what you're trying to build?`;
-    }
-    return `Hi! I'm Nexora AI. I can help with proposals, job descriptions, hiring, and managing your freelance projects. What would you like help with?`;
+    // Post-process response to ensure no leaked raw tags
+    return rawText
+      .replace(/###/g, "")
+      .replace(/\*\*\*/g, "")
+      .replace(/##/g, "");
   } catch (error) {
-    console.error("Gemini AI API Error:", error.message);
-    throw error;
+    // Quota limits (429), timeouts, and transient network errors are common
+    // on the free tier — degrade to the offline generator instead of
+    // failing every AI feature with a raw 500. Genuine bugs (bad prompts,
+    // auth misconfiguration) still get logged here for visibility.
+    console.error("⚠️ [GEMINI] Live API call failed, falling back to offline generator:", error.message);
+    return offlineFallback(prompt, systemInstruction);
   }
 };

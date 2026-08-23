@@ -9,8 +9,16 @@ interface CheckboxProps extends InputHTMLAttributes<HTMLInputElement> {
 export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
   ({ className, label, id, ...props }, ref) => {
     const checkboxId = id || props.name;
+    // `flex`, not `inline-flex`, below: consecutive Checkboxes are rendered
+    // as siblings in a `space-y-*` list (see BrowseJobs filters). inline-flex
+    // makes each one an inline-level box, so they'd flow side-by-side like
+    // words in a sentence and wrap mid-row instead of each stacking on its
+    // own line — cramming the checkbox and next label together. `flex` keeps
+    // it a block-level element so the list stacks correctly, and has no
+    // effect on the other usages (Login/Signup), which each sit alone inside
+    // their own wrapper anyway.
     return (
-      <label htmlFor={checkboxId} className="inline-flex cursor-pointer items-start gap-2.5 select-none">
+      <label htmlFor={checkboxId} className="flex cursor-pointer items-start gap-2.5 select-none">
         <span className="relative mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
           <input
             ref={ref}

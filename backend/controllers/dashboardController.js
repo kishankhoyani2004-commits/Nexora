@@ -562,6 +562,7 @@ export const getClientActivity = async (req, res, next) => {
     const clientId = req.user._id;
     const page     = Math.max(1, parseInt(req.query.page  || "1", 10));
     const limit    = Math.min(50, parseInt(req.query.limit || "20", 10));
+    const category = req.query.category || "all"; // all | projects | payments | messages | ai
 
     const [jobs, contracts, notifications, recentMessages] = await Promise.all([
       Job.find({ client: clientId }).sort({ updatedAt: -1 }).limit(20),
@@ -580,12 +581,13 @@ export const getClientActivity = async (req, res, next) => {
 
     const events = [];
 
-    // Job events
+    // Job events — category aligned to "projects" so these actually show up
+    // under the Projects tab (was "jobs", which no frontend filter matches).
     jobs.forEach((j) => {
       events.push({
         id:          `job-${j.id}`,
         type:        "job_posted",
-        category:    "jobs",
+        category:    "projects",
         title:       j.status === "draft" ? "Job Saved as Draft" : "Job Posted",
         description: `"${j.title}" — ${j.status.replace("_", " ")}`,
         createdAt:   j.createdAt,
@@ -615,6 +617,30 @@ export const getClientActivity = async (req, res, next) => {
           createdAt:   c.updatedAt,
         });
       }
+      // Payment/escrow events — the client feed previously had no source for
+      // the "Payments" tab at all, so it was permanently empty.
+      if (c.escrowStatus === "released") {
+        events.push({
+          id:          `payment-released-${c.id}`,
+          type:        "payment_released",
+          category:    "payments",
+          title:       "Payment Released 💰",
+          description: `₹${c.budget?.toLocaleString("en-IN") ?? "—"} released from escrow to ${name} for "${c.title}"`,
+          amount:      c.budget,
+          meta:        `To: ${name}`,
+          createdAt:   c.updatedAt,
+        });
+      } else if (c.escrowStatus === "funded") {
+        events.push({
+          id:          `payment-funded-${c.id}`,
+          type:        "payment_released",
+          category:    "payments",
+          title:       "Escrow Funded",
+          description: `₹${c.budget?.toLocaleString("en-IN") ?? "—"} placed in escrow for "${c.title}"`,
+          amount:      c.budget,
+          createdAt:   c.updatedAt,
+        });
+      }
     });
 
     // Messages
@@ -629,12 +655,13 @@ export const getClientActivity = async (req, res, next) => {
       });
     });
 
-    // Notifications
+    // Notifications — category aligned to "projects" (was "general", which
+    // no frontend filter matches, so these only ever showed under "All").
     notifications.forEach((n) => {
       events.push({
         id:          `notif-${n.id}`,
         type:        "notification",
-        category:    "general",
+        category:    "projects",
         title:       n.title,
         description: n.message,
         createdAt:   n.createdAt,
@@ -645,9 +672,15 @@ export const getClientActivity = async (req, res, next) => {
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
 
-    const total      = events.length;
+    // ── Category filter — this was previously missing entirely, so every
+    // tab (Projects/Payments/Messages/AI) silently showed the same
+    // unfiltered "All" list regardless of which one was selected.
+    const filteredEvents =
+      category === "all" ? events : events.filter((e) => e.category === category);
+
+    const total      = filteredEvents.length;
     const startIndex = (page - 1) * limit;
-    const items      = events.slice(startIndex, startIndex + limit);
+    const items      = filteredEvents.slice(startIndex, startIndex + limit);
     const hasMore    = startIndex + limit < total;
 
     res.status(200).json({

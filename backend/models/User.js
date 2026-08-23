@@ -197,7 +197,15 @@ const userSchema = new mongoose.Schema(
     },
     sessions: [
       {
-        sessionId: { type: String, required: true, unique: true },
+        // NOT `unique: true` — Mongoose builds that as one index across the
+        // WHOLE users collection (not "unique per user"), and every new
+        // user's default empty `sessions: []` array indexes as null, so a
+        // unique index only ever allows ONE user in the entire database to
+        // exist before every subsequent signup fails with a duplicate-key
+        // error on this field. crypto.randomUUID() (see authController.js)
+        // already makes collisions practically impossible without a DB
+        // constraint, which is all this field actually needs.
+        sessionId: { type: String, required: true },
         device: { type: String, default: "Unknown" },
         ipAddress: { type: String, default: "" },
         userAgent: { type: String, default: "" },

@@ -304,7 +304,12 @@ export const saveDraftJob = async (req, res, next) => {
     const job = await Job.create({
       client: req.user._id,
       title:           title || "Untitled Draft",
-      description:     description || "",
+      // Mongoose's built-in `required` check for String fields rejects an
+      // empty string (it checks `v.length`, not just null/undefined) — so a
+      // draft saved with no description yet would otherwise fail Job
+      // validation on every save. Give it the same non-empty-placeholder
+      // treatment as `title` above, for the same reason.
+      description:     description || "No description provided yet.",
       budgetMin:       budgetMin || 0,
       budgetMax:       budgetMax || 0,
       priceType:       priceType || "fixed",

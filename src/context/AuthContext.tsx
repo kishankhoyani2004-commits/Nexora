@@ -137,9 +137,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           }
         }
-      } catch {
+      } catch (error: any) {
         if (!cancelled) {
-          persist(null);
+          // Only clear the session on a genuine auth failure (expired/invalid
+          // token → 401). A transient failure here — rate limiting, a 5xx, a
+          // network blip — says nothing about whether the token is actually
+          // still valid, so treating it the same as "logged out" would wipe
+          // a perfectly good session out from under the user mid-visit. The
+          // user state already starts from localStorage (see useState above),
+          // so simply leaving it alone here keeps them signed in with their
+          // last-known profile; the axios 401 interceptor wired above still
+          // catches a truly invalid token on the next real request.
+          if (error?.response?.status === 401) {
+            persist(null);
+          }
           setIsLoading(false);
         }
       }
