@@ -91,7 +91,19 @@ export const register = async (req, res, next) => {
       verified: false,
     });
 
-    await sendVerificationEmail(email, fullName, verificationCode);
+    const emailSent = await sendVerificationEmail(email, fullName, verificationCode);
+
+    if (!emailSent) {
+      // Remove the user so the email address is not left as an unverifiable
+      // dead account — the user should be able to retry registration cleanly.
+      await User.findByIdAndDelete(user._id);
+      return res.status(502).json({
+        success: false,
+        message:
+          "Account created but we could not send the verification email. " +
+          "Please check your email address and try again, or contact support.",
+      });
+    }
 
     // No token is issued yet — the account must be verified via
     // /auth/verify-email before the user can sign in (see login()).
@@ -168,7 +180,14 @@ export const resendVerificationCode = async (req, res, next) => {
     user.verificationCodeExpires = verificationCodeExpires;
     await user.save();
 
-    await sendVerificationEmail(user.email, user.fullName, verificationCode);
+    const emailSent = await sendVerificationEmail(user.email, user.fullName, verificationCode);
+
+    if (!emailSent) {
+      return res.status(502).json({
+        success: false,
+        message: "Failed to send verification email. Please wait a moment and try again.",
+      });
+    }
 
     res.status(200).json({ success: true, message: "Verification code resent to your email." });
   } catch (error) {
@@ -287,7 +306,14 @@ export const forgotPassword = async (req, res, next) => {
     user.resetOtpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
     await user.save();
 
-    await sendOtpEmail(user.email, otp);
+    const emailSent = await sendOtpEmail(user.email, otp);
+
+    if (!emailSent) {
+      return res.status(502).json({
+        success: false,
+        message: "Failed to send OTP email. Please wait a moment and try again.",
+      });
+    }
 
     res.status(200).json({ success: true, message: "OTP sent to your email." });
   } catch (error) {

@@ -24,7 +24,7 @@ export const sendEmail = async ({ email, subject, text, html }) => {
   try {
     if (isConfigured) {
       const mailOptions = {
-        from: process.env.FROM_EMAIL || '"Nexora Marketplace" <noreply@nexora.com>',
+        from: process.env.FROM_EMAIL || (process.env.SMTP_USER ? `"Nexora Marketplace" <${process.env.SMTP_USER}>` : '"Nexora Marketplace" <noreply@nexora.com>'),
         to: email,
         subject,
         text,
