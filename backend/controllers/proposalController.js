@@ -62,7 +62,8 @@ export const uploadAttachment = async (req, res, next) => {
       return res.status(400).json({ success: false, message: "Please select a file to upload." });
     }
 
-    const result = await uploadFile(req.file.path, "proposal-attachments");
+    const fileData = req.file.buffer || req.file.path;
+    const result = await uploadFile(fileData, "proposal-attachments", req.file.originalname, req.file.mimetype);
 
     res.status(200).json({
       success: true,

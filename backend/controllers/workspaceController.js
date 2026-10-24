@@ -302,7 +302,8 @@ export const uploadFile = async (req, res, next) => {
       return res.status(400).json({ success: false, message: "Please select a file to upload." });
     }
 
-    const result = await uploadToCloudinary(req.file.path, `projects/${req.params.projectId}`);
+    const fileData = req.file.buffer || req.file.path;
+    const result = await uploadToCloudinary(fileData, `projects/${req.params.projectId}`, req.file.originalname, req.file.mimetype);
 
     const file = await WorkspaceFile.create({
       projectId: req.params.projectId,

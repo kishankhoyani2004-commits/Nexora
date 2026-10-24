@@ -81,8 +81,14 @@ const limiter = rateLimit({
 });
 app.use("/api", limiter);
 
+// Ensure uploads folder exists locally
+const uploadsDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
 // Serve uploads folder locally
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/uploads", express.static(uploadsDir));
 
 // Swagger Configuration
 const swaggerOptions = {

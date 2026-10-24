@@ -42,7 +42,8 @@ export const submitProject = async (req, res, next) => {
     const files = [];
     if (req.files && req.files.length > 0) {
       for (const file of req.files) {
-        const result = await uploadToCloudinary(file.path, `projects/${contract._id}/submissions`);
+        const fileData = file.buffer || file.path;
+        const result = await uploadToCloudinary(fileData, `projects/${contract._id}/submissions`, file.originalname, file.mimetype);
         files.push({
           name: file.originalname,
           url: result.url,
