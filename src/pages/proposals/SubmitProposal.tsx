@@ -33,8 +33,8 @@ export default function SubmitProposal() {
   const { notify } = useNotification();
 
   const [description, setDescription] = useState("");
-  const [bidAmount, setBidAmount] = useState(625);
-  const [deliveryDays, setDeliveryDays] = useState(21);
+  const [bidAmount, setBidAmount] = useState<number | "">("");
+  const [deliveryDays, setDeliveryDays] = useState<number | "">("");
   const [milestones, setMilestones] = useState<Milestone[]>([{ id: "m1", name: "", amount: 0 }]);
   const [attachments, setAttachments] = useState<JobAttachment[]>([]);
   const [uploadingFile, setUploadingFile] = useState(false);
@@ -46,8 +46,9 @@ export default function SubmitProposal() {
   const [estimatingDelivery, setEstimatingDelivery] = useState(false);
   const [deliverySuggestion, setDeliverySuggestion] = useState<{ estimatedDelivery: string; reasoning: string } | null>(null);
 
-  const serviceFee = Math.round(bidAmount * 0.05);
-  const youReceive = bidAmount - serviceFee;
+  const numericBid = typeof bidAmount === "number" ? bidAmount : 0;
+  const serviceFee = Math.round(numericBid * 0.05);
+  const youReceive = numericBid - serviceFee;
 
   // Load job details dynamically from MongoDB
   const { data: jobResponse, isLoading } = useQuery({
@@ -158,8 +159,12 @@ export default function SubmitProposal() {
       notify("Please write a cover letter before submitting.", "error");
       return;
     }
-    if (!deliveryDays || deliveryDays < 1) {
-      notify("Please enter a valid delivery time.", "error");
+    if (!bidAmount || Number(bidAmount) <= 0) {
+      notify("Please enter your proposal budget.", "error");
+      return;
+    }
+    if (!deliveryDays || Number(deliveryDays) < 1) {
+      notify("Please enter a valid delivery time in days.", "error");
       return;
     }
     setSubmitting(true);
@@ -167,8 +172,8 @@ export default function SubmitProposal() {
       await proposalService.submit(id!, {
         description,          // backend stores as description
         coverLetter: description, // and also as coverLetter for consistency
-        bidAmount:   bidAmount * 80,  // convert USD → INR
-        estimatedDelivery: `${deliveryDays} day${deliveryDays === 1 ? "" : "s"}`,
+        bidAmount:   Number(bidAmount) * 80,  // convert USD → INR
+        estimatedDelivery: `${deliveryDays} day${Number(deliveryDays) === 1 ? "" : "s"}`,
         milestones: milestones
           .filter((m) => m.name.trim())
           .map((m) => ({ name: m.name, amount: m.amount * 80 })),
@@ -351,8 +356,9 @@ export default function SubmitProposal() {
                     <span className="text-sm font-bold text-ink-900">$</span>
                     <input
                       type="number"
-                      value={bidAmount || ""}
-                      onChange={(e) => setBidAmount(e.target.value === "" ? 0 : parseInt(e.target.value) || 0)}
+                      placeholder="e.g. 500"
+                      value={bidAmount}
+                      onChange={(e) => setBidAmount(e.target.value === "" ? "" : Number(e.target.value))}
                       className="h-11 w-full pl-1.5 text-sm font-bold text-ink-900 bg-surface-card outline-none"
                     />
                   </div>
@@ -390,8 +396,9 @@ export default function SubmitProposal() {
                   <input
                     type="number"
                     min={1}
-                    value={deliveryDays || ""}
-                    onChange={(e) => setDeliveryDays(e.target.value === "" ? 0 : parseInt(e.target.value) || 0)}
+                    placeholder="e.g. 14"
+                    value={deliveryDays}
+                    onChange={(e) => setDeliveryDays(e.target.value === "" ? "" : Number(e.target.value))}
                     className="h-11 w-full text-sm font-bold text-ink-900 bg-surface-card outline-none"
                   />
                   <span className="text-xs font-semibold text-ink-400 shrink-0">days</span>
@@ -418,7 +425,7 @@ export default function SubmitProposal() {
               <div className="space-y-3 pt-3 border-t border-surface-border">
                 <div className="flex justify-between text-xs font-bold">
                   <span className="text-ink-400">Project Bid Amount</span>
-                  <span className="text-ink-900">${bidAmount}</span>
+                  <span className="text-ink-900">{bidAmount !== "" ? `$${bidAmount}` : "$0"}</span>
                 </div>
 
                 <div className="flex justify-between text-xs font-bold">
@@ -430,7 +437,7 @@ export default function SubmitProposal() {
 
                 <div className="flex justify-between text-sm font-black">
                   <span className="text-ink-900 font-black">You Receive</span>
-                  <span className="text-brand-600 font-black">${youReceive}</span>
+                  <span className="text-brand-600 font-black">${youReceive > 0 ? youReceive : 0}</span>
                 </div>
               </div>
 
