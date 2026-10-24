@@ -226,8 +226,9 @@ export const streamMessage = async (req, res, next) => {
       res.write(`data: ${JSON.stringify({ error: streamErr.message })}\n\n`);
     }
 
+    const finalContent = fullText.trim() || "I'm here to help with any questions about your projects, hiring, and proposals!";
     chat.messages.push({ role: "user", content });
-    chat.messages.push({ role: "assistant", content: fullText });
+    chat.messages.push({ role: "assistant", content: finalContent });
     if (chat.messages.length === 2) chat.title = deriveTitle(content);
     chat.lastMessageAt = new Date();
     await chat.save();

@@ -13,31 +13,35 @@ if (apiKey) {
 // responses instead of the fake client-side setInterval typewriter. ──────────
 export const generateTextStream = async function* (prompt, systemInstruction = "", history = []) {
   if (aiInstance) {
-    const cleanInstruction = (systemInstruction || "You are Nexora AI, a professional freelance assistant.") +
-      " Format responses using clean markdown (headers, bold, code blocks, lists) where helpful.";
+    try {
+      const cleanInstruction = (systemInstruction || "You are Nexora AI, a professional freelance assistant.") +
+        " Format responses using clean markdown (headers, bold, code blocks, lists) where helpful.";
 
-    const model = aiInstance.getGenerativeModel({
-      model: "gemini-2.0-flash-lite",
-      systemInstruction: cleanInstruction,
-    });
+      const model = aiInstance.getGenerativeModel({
+        model: "gemini-3.5-flash-lite",
+        systemInstruction: cleanInstruction,
+      });
 
-    const formattedHistory = history.map(h => ({
-      role: h.role === "assistant" || h.role === "model" ? "model" : "user",
-      parts: [{ text: h.content || h.parts?.[0]?.text || "" }]
-    }));
+      const formattedHistory = history.map(h => ({
+        role: h.role === "assistant" || h.role === "model" ? "model" : "user",
+        parts: [{ text: h.content || h.parts?.[0]?.text || "" }]
+      }));
 
-    const chat = model.startChat({ history: formattedHistory });
-    const result = await chat.sendMessageStream(prompt);
+      const chat = model.startChat({ history: formattedHistory });
+      const result = await chat.sendMessageStream(prompt);
 
-    for await (const chunk of result.stream) {
-      const text = chunk.text();
-      if (text) yield text;
+      for await (const chunk of result.stream) {
+        const text = chunk.text();
+        if (text) yield text;
+      }
+      return;
+    } catch (error) {
+      console.error("⚠️ [GEMINI] Stream API call failed, falling back to offline generator:", error.message);
     }
-    return;
   }
 
-  // No API key — degrade gracefully by chunking the non-streaming fallback text.
-  const fallback = await generateText(prompt, systemInstruction, history);
+  // Fallback (when no key or when live API call fails)
+  const fallback = offlineFallback(prompt, systemInstruction);
   const words = fallback.split(" ");
   for (let i = 0; i < words.length; i += 4) {
     yield words.slice(i, i + 4).join(" ") + " ";
@@ -416,7 +420,7 @@ export const generateText = async (prompt, systemInstruction = "", history = [])
       " IMPORTANT: Do not output raw markdown headers like ### or nested formatting markers like ***. Use clean CAPITALIZED text headers instead.";
 
     const model = aiInstance.getGenerativeModel({
-      model: "gemini-2.0-flash-lite",
+      model: "gemini-3.5-flash-lite",
       systemInstruction: cleanInstruction,
     });
 
