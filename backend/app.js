@@ -6,6 +6,7 @@ import morgan from "morgan";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import swaggerUi from "swagger-ui-express";
 import swaggerJsDoc from "swagger-jsdoc";
