@@ -40,6 +40,7 @@ export default function SubmitProposal() {
   const [uploadingFile, setUploadingFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [generating, setGenerating] = useState(false);
+  const [improving, setImproving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [estimatingBid, setEstimatingBid] = useState(false);
   const [bidSuggestion, setBidSuggestion] = useState<{ suggestedBid: number; reasoning: string } | null>(null);
@@ -62,22 +63,33 @@ export default function SubmitProposal() {
 
   const job = jobResponse?.data;
 
-  // Real Gemini AI proposal generation — job- and profile-aware. Generates a
-  // fresh cover letter when the draft is empty, otherwise improves the
-  // freelancer's existing draft instead of overwriting their work blindly.
+  // Real Gemini AI proposal generation — deeply tailored to this specific job
   const handleAiGenerate = async () => {
     if (!id) return;
     setGenerating(true);
     try {
-      const res = description.trim()
-        ? await aiService.improveProposalText(description)
-        : await aiService.generateProposalForJob(id);
+      const res = await aiService.generateProposalForJob(id);
       setDescription(res.data.data.content);
-      notify(description.trim() ? "Proposal improved by AI!" : "AI proposal draft generated successfully!", "success");
+      notify("AI proposal draft generated specifically for this project!", "success");
     } catch (err: any) {
       notify("Failed to generate AI proposal draft", "error");
     } finally {
       setGenerating(false);
+    }
+  };
+
+  // Polish or refine user's existing draft
+  const handleAiImprove = async () => {
+    if (!description.trim()) return;
+    setImproving(true);
+    try {
+      const res = await aiService.improveProposalText(description);
+      setDescription(res.data.data.content);
+      notify("Proposal draft refined and improved by AI!", "success");
+    } catch (err: any) {
+      notify("Failed to improve proposal draft", "error");
+    } finally {
+      setImproving(false);
     }
   };
 
@@ -222,17 +234,31 @@ export default function SubmitProposal() {
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="space-y-6 lg:col-span-2">
             <div className="rounded-2xl border border-surface-border bg-surface-card p-6 shadow-card">
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs font-bold uppercase tracking-wide text-ink-400">Proposal Description</p>
-                <Button
-                  size="sm"
-                  icon={<Sparkles className="h-4 w-4" />}
-                  iconPosition="left"
-                  isLoading={generating}
-                  onClick={handleAiGenerate}
-                >
-                  AI Generate Proposal
-                </Button>
+                <div className="flex items-center gap-2">
+                  {description.trim().length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      icon={<Wand2 className="h-4 w-4" />}
+                      iconPosition="left"
+                      isLoading={improving}
+                      onClick={handleAiImprove}
+                    >
+                      Improve Draft
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    icon={<Sparkles className="h-4 w-4" />}
+                    iconPosition="left"
+                    isLoading={generating}
+                    onClick={handleAiGenerate}
+                  >
+                    AI Generate Proposal
+                  </Button>
+                </div>
               </div>
               <div className="rounded-2xl border border-surface-border">
                 <div className="flex items-center gap-3 border-b border-surface-border bg-surface-muted px-4 py-2.5 text-ink-500">

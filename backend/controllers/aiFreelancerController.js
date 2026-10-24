@@ -94,12 +94,53 @@ export const suggestBetterJobs = async (req, res, next) => {
 
 export const generateProposalForJob = async (req, res, next) => {
   try {
-    const job = await Job.findById(req.params.jobId);
+    const job = await Job.findById(req.params.jobId).populate("client", "fullName companyName");
     if (!job) return notFound(res, "Job not found.");
     const user = req.user;
 
-    const prompt = `Write a high-converting proposal cover letter for this freelancer applying to this job.\n\nJob: "${job.title}"\nDescription: "${job.description}"\nRequired skills: ${job.skills.join(", ")}\nBudget: ₹${job.budgetMin}-${job.budgetMax}\n\nFreelancer profile: ${user.fullName}, title: "${user.title || "Freelancer"}", skills: ${(user.skills || []).join(", ")}, bio: "${user.bio || ""}".\n\nWrite a personalized, confident cover letter referencing the freelancer's actual skills that overlap with the job, a brief plan, and a call to action. Keep it under 250 words.`;
-    const reply = await generateText(prompt, SYS);
+    const clientName = job.client?.companyName || (job.client?.fullName ? job.client.fullName.split(" ")[0] : "Hiring Manager");
+    const freelancerName = user.fullName || "Freelancer";
+    const requiredSkills = (job.skills || []).join(", ") || "software development and design";
+    const freelancerSkills = (user.skills || []).join(", ") || user.title || "full-stack development";
+
+    const prompt = `You are an elite proposal strategist helping a top freelancer win high-value contracts on a competitive freelance marketplace.
+Write an exceptionally persuasive, customized, high-converting proposal cover letter for ${freelancerName} applying for this specific project:
+
+=== TARGET JOB DETAILS ===
+- Job Title: "${job.title}"
+- Description: "${job.description}"
+- Category: "${job.category || 'General'}"
+- Required Skills: ${requiredSkills}
+- Scope / Level: ${job.experienceLevel || 'Intermediate'}
+- Price Type: ${job.priceType || 'fixed'}
+
+=== FREELANCER PROFILE ===
+- Full Name: ${freelancerName}
+- Title: "${user.title || 'Senior Specialist'}"
+- Skills & Tech Stack: ${freelancerSkills}
+- Profile Bio: "${user.bio || ''}"
+
+=== INSTRUCTIONS FOR THE PROPOSAL ===
+1. Salutation: "Dear ${clientName}," or "Hi ${clientName},"
+2. Hook (Paragraph 1): Open with genuine enthusiasm and demonstrate precise understanding of their project requirements and core objective. Avoid clichés like "I am writing to apply for your job".
+3. Why I'm the Best Fit (Paragraph 2): Highlight 2-3 specific, matching competencies from the freelancer's profile (${freelancerSkills}) that directly align with the job's requirements (${requiredSkills}). Reference relevant technical approaches.
+4. Actionable 3-Phase Execution Plan (Bulleted):
+   - Phase 1: Architecture, Scoping & Initial Milestone Setup
+   - Phase 2: Core Development, Implementation & Weekly Iteration
+   - Phase 3: Comprehensive Testing, QA, Polish & Deployment Handoff
+5. Communication & Quality Assurance: Guarantee proactive daily/weekly updates, clear milestone deliverables, and post-delivery assistance.
+6. Call to Action: Friendly, low-friction invitation for a quick 10-minute discovery chat to align on requirements and kick off immediately.
+7. Sign off cleanly:
+Best regards,
+${freelancerName}
+${user.title ? user.title : ''}
+
+CRITICAL RULES:
+- Tailor the letter deeply to "${job.title}".
+- DO NOT use any placeholders like [Your Name], [Client Name], or [Insert Portfolio Link].
+- Keep the tone confident, articulate, and client-centric.`;
+
+    const reply = await generateText(prompt, "You are an elite freelance proposal strategist. Write high-converting, professional proposal cover letters formatted cleanly with Markdown.");
     res.status(200).json({ success: true, data: { content: reply } });
   } catch (error) {
     next(error);
