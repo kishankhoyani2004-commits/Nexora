@@ -17,7 +17,7 @@ export const generateTextStream = async function* (prompt, systemInstruction = "
       " Format responses using clean markdown (headers, bold, code blocks, lists) where helpful.";
 
     const model = aiInstance.getGenerativeModel({
-      model: "gemini-flash-latest",
+      model: "gemini-2.0-flash-lite",
       systemInstruction: cleanInstruction,
     });
 
@@ -416,7 +416,7 @@ export const generateText = async (prompt, systemInstruction = "", history = [])
       " IMPORTANT: Do not output raw markdown headers like ### or nested formatting markers like ***. Use clean CAPITALIZED text headers instead.";
 
     const model = aiInstance.getGenerativeModel({
-      model: "gemini-flash-latest",
+      model: "gemini-2.0-flash-lite",
       systemInstruction: cleanInstruction,
     });
 
