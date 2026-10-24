@@ -1,18 +1,29 @@
-import fs from "fs/promises";
 import path from "path";
 
 // Real text extraction for AI file analysis — no mock/placeholder summaries.
-// Supports PDF, DOCX/DOC, and plain text. Anything else falls back to a
-// clear "unsupported" marker instead of pretending to have read the file.
+// Supports PDF, DOCX/DOC, and plain text. Accepts a Buffer (memory storage)
+// OR a file-path string (disk storage) so it works on Render with memoryStorage.
 const MAX_CHARS = 12000; // keep prompt payloads bounded for Gemini context
 
-export const extractTextFromFile = async (filePath, originalName, mimetype) => {
+export const extractTextFromFile = async (filePathOrBuffer, originalName, mimetype) => {
   const ext = path.extname(originalName).toLowerCase();
+
+  // Normalise to a Buffer — either it already is one, or read it from disk.
+  let buffer;
+  try {
+    if (Buffer.isBuffer(filePathOrBuffer)) {
+      buffer = filePathOrBuffer;
+    } else {
+      const fs = await import("fs/promises");
+      buffer = await fs.default.readFile(filePathOrBuffer);
+    }
+  } catch (err) {
+    return `[Could not read file "${originalName}": ${err.message}]`;
+  }
 
   try {
     if (ext === ".pdf" || mimetype === "application/pdf") {
       const { default: pdfParse } = await import("pdf-parse");
-      const buffer = await fs.readFile(filePath);
       const data = await pdfParse(buffer);
       return truncate(data.text);
     }
@@ -22,21 +33,16 @@ export const extractTextFromFile = async (filePath, originalName, mimetype) => {
       mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     ) {
       const mammoth = await import("mammoth");
-      const buffer = await fs.readFile(filePath);
       const result = await mammoth.extractRawText({ buffer });
       return truncate(result.value);
     }
 
     if (ext === ".doc" || mimetype === "application/msword") {
-      // Legacy binary .doc has no reliable pure-JS parser — read as best-effort
-      // text rather than silently faking a summary.
-      const buffer = await fs.readFile(filePath);
       return truncate(buffer.toString("utf-8").replace(/[^\x20-\x7E\n\r\t]/g, " "));
     }
 
     if (ext === ".txt" || mimetype === "text/plain" || ext === ".csv" || mimetype === "text/csv") {
-      const text = await fs.readFile(filePath, "utf-8");
-      return truncate(text);
+      return truncate(buffer.toString("utf-8"));
     }
 
     return `[Unsupported file type "${ext}" — only PDF, DOCX, DOC, TXT, and CSV can be analyzed.]`;

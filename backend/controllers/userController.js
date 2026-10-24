@@ -80,7 +80,7 @@ export const uploadAvatar = async (req, res, next) => {
       return res.status(403).json({ success: false, message: "Not authorized to edit this profile." });
     }
 
-    const result = await uploadFile(req.file.path, "avatars");
+    const result = await uploadFile(req.file.buffer, "avatars", req.file.originalname);
     user.avatar = result.url;
     await user.save();
 

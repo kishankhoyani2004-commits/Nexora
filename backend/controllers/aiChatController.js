@@ -4,14 +4,26 @@ import { generateText, generateTextStream, generateJSON } from "../services/gemi
 import { extractTextFromFile } from "../services/fileParserService.js";
 import { buildRoleContext, buildSystemInstruction } from "../services/aiContextService.js";
 
+// Context cache — avoids 3 heavy DB queries on every single AI message.
+// Expires after 2 minutes so data stays reasonably fresh during a session.
+const contextCache = new Map();
+const CACHE_TTL_MS = 2 * 60 * 1000;
+
 // Builds a fresh, role-scoped, real-data-grounded system instruction for the
 // requesting user — so the same general chat endpoint answers a client's
 // "which proposal is best?" and a freelancer's "estimate my delivery time?"
 // with the correct toolset and actual live data, never mock content.
 const getSystemInstruction = async (user) => {
+  const cacheKey = `${user._id}_${user.role}`;
+  const cached = contextCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.instruction;
+
   const role = user.role === "client" ? "client" : "freelancer";
   const dataContext = await buildRoleContext(user);
-  return buildSystemInstruction(role, dataContext, user.fullName);
+  const instruction = buildSystemInstruction(role, dataContext, user.fullName);
+
+  contextCache.set(cacheKey, { instruction, ts: Date.now() });
+  return instruction;
 };
 
 // Find a chat scoped to the current user — 404s instead of 403 so we never
@@ -244,7 +256,7 @@ export const uploadChatFile = async (req, res, next) => {
     const chat = await findOwnedChat(req.params.chatId, req.user.id);
     if (!chat) return res.status(404).json({ success: false, message: "Chat not found." });
 
-    const extractedText = await extractTextFromFile(req.file.path, req.file.originalname, req.file.mimetype);
+    const extractedText = await extractTextFromFile(req.file.buffer || req.file.path, req.file.originalname, req.file.mimetype);
     const userQuestion = (req.body.question || "").trim() || `Analyze the uploaded file "${req.file.originalname}" and summarize the key points.`;
 
     const history = chat.messages.map((m) => ({ role: m.role, content: m.content }));
@@ -263,8 +275,8 @@ export const uploadChatFile = async (req, res, next) => {
     chat.lastMessageAt = new Date();
     await chat.save();
 
-    // Clean up the temp upload — extracted text is already persisted on the message.
-    fs.unlink(req.file.path).catch(() => {});
+    // Clean up temp file if disk storage was used (memory storage has no path).
+    if (req.file.path) fs.unlink(req.file.path).catch(() => {});
 
     res.status(200).json({ success: true, data: { reply, chat } });
   } catch (error) {

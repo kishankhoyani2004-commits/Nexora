@@ -1,15 +1,9 @@
 import multer from "multer";
 import path from "path";
 
-// Set storage engine
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, "uploads/");
-  },
-  filename: function (req, file, cb) {
-    cb(null, `${file.fieldname}-${Date.now()}${path.extname(file.originalname)}`);
-  },
-});
+// Use memory storage so files go directly to Cloudinary/parser
+// without touching the ephemeral local disk (which is wiped on Render redeployments).
+const storage = multer.memoryStorage();
 
 // Allowed extensions for project file sharing (images, PDF, Office docs, archives).
 const ALLOWED_EXTENSIONS = /\.(jpe?g|png|gif|webp|pdf|docx?|xlsx?|pptx?|zip|rar|7z|csv|txt)$/i;

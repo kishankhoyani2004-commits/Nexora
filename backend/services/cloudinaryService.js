@@ -1,5 +1,6 @@
 import { v2 as cloudinary } from "cloudinary";
 import fs from "fs";
+import { Readable } from "stream";
 
 // Configure Cloudinary if credentials exist
 const isConfigured =
@@ -17,29 +18,37 @@ if (isConfigured) {
   console.log("⚠️ [CLOUDINARY] Credentials missing. Falling back to local file hosting.");
 }
 
-export const uploadFile = async (filePath, folder = "nexora") => {
+// Upload from a Buffer (memoryStorage) OR a file path (diskStorage).
+export const uploadFile = async (filePathOrBuffer, folder = "nexora", originalName = "") => {
   try {
     if (isConfigured) {
-      const result = await cloudinary.uploader.upload(filePath, {
-        folder: folder,
-        resource_type: "auto",
-      });
-      // Delete temporary file local path
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      let result;
+
+      if (Buffer.isBuffer(filePathOrBuffer)) {
+        // Memory storage — stream the buffer directly to Cloudinary
+        result = await new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            { folder, resource_type: "auto", public_id: `${Date.now()}-${originalName.replace(/\s+/g, "_")}` },
+            (error, res) => (error ? reject(error) : resolve(res))
+          );
+          Readable.from(filePathOrBuffer).pipe(uploadStream);
+        });
+      } else {
+        // Disk storage — upload from path then delete temp file
+        result = await cloudinary.uploader.upload(filePathOrBuffer, {
+          folder,
+          resource_type: "auto",
+        });
+        if (fs.existsSync(filePathOrBuffer)) fs.unlinkSync(filePathOrBuffer);
       }
-      return {
-        url: result.secure_url,
-        publicId: result.public_id,
-      };
+
+      return { url: result.secure_url, publicId: result.public_id };
     } else {
-      // Local fallback url path
-      const fileName = filePath.replace(/\\/g, "/").split("/").pop();
-      const localUrl = `/uploads/${fileName}`;
-      return {
-        url: localUrl,
-        publicId: fileName,
-      };
+      // Local fallback — only works in development (Render wipes disk on redeploy)
+      const fileName = Buffer.isBuffer(filePathOrBuffer)
+        ? `${Date.now()}-${originalName}`
+        : filePathOrBuffer.replace(/\\/g, "/").split("/").pop();
+      return { url: `/uploads/${fileName}`, publicId: fileName };
     }
   } catch (error) {
     console.error("Cloudinary upload error:", error.message);
